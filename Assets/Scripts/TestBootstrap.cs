@@ -20,7 +20,7 @@ public class TestBootstrap : MonoBehaviour
     public GameObject constructionSitePrefab;
     public GameObject housePrefab;
 
-    private string _log = "Appuie sur un bouton pour lancer un test.";
+    private string _log = "...";
 
     private void OnGUI()
     {
@@ -60,7 +60,6 @@ public class TestBootstrap : MonoBehaviour
         }
 
         // ── Test 6 ─────────────────────────────────────────────────────────
-        GUILayout.Label("Test 6 : place un Castle T2 dans la scène,\npuis clique le bouton ci-dessous.");
         if (GUILayout.Button("Test 6 — Vérifier déverrouillage T2"))
         {
             int t2 = BuildingManager.Instance.GetCastleCount(2);

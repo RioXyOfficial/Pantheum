@@ -10,7 +10,6 @@ namespace Pantheum.Core
     /// Controls:
     ///   WASD / Arrow keys  — pan
     ///   Scroll wheel       — zoom (moves along forward axis)
-    ///   Right mouse drag   — rotate around Y axis
     ///   Middle mouse drag  — pan (alternative)
     /// </summary>
     public class RTSCamera : MonoBehaviour
@@ -26,11 +25,7 @@ namespace Pantheum.Core
         [SerializeField] private float _minZoomY = 5f;
         [SerializeField] private float _maxZoomY = 60f;
 
-        [Header("Rotation")]
-        [SerializeField] private float _rotateSpeed = 100f;
-
         private Vector3 _lastMousePos;
-        private bool _isRotating;
         private bool _isMiddlePanning;
 
         private void Update()
@@ -38,7 +33,6 @@ namespace Pantheum.Core
             HandleKeyboardPan();
             HandleEdgeScroll();
             HandleZoom();
-            HandleRotation();
             HandleMiddleMousePan();
         }
 
@@ -87,27 +81,6 @@ namespace Pantheum.Core
             pos += transform.forward * (scroll * _zoomSpeed * Time.deltaTime);
             pos.y = Mathf.Clamp(pos.y, _minZoomY, _maxZoomY);
             transform.position = pos;
-        }
-
-        private void HandleRotation()
-        {
-            var mouse = Mouse.current;
-            if (mouse == null) return;
-
-            if (mouse.rightButton.wasPressedThisFrame)
-            {
-                _lastMousePos = mouse.position.ReadValue();
-                _isRotating = true;
-            }
-            if (mouse.rightButton.wasReleasedThisFrame)
-                _isRotating = false;
-
-            if (!_isRotating) return;
-
-            Vector3 current = mouse.position.ReadValue();
-            float delta = (current.x - _lastMousePos.x) * _rotateSpeed * Time.deltaTime;
-            transform.Rotate(Vector3.up, delta, Space.World);
-            _lastMousePos = current;
         }
 
         private void HandleMiddleMousePan()
