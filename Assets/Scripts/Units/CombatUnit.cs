@@ -1,5 +1,6 @@
 using UnityEngine;
 using Pantheum.Core;
+using Pantheum.Buildings;
 
 namespace Pantheum.Units
 {
@@ -11,10 +12,14 @@ namespace Pantheum.Units
     public class CombatUnit : UnitBase
     {
         [Header("Combat")]
-        [SerializeField] private float _attackDamage = 10f;
-        [SerializeField] private float _attackRange = 2f;
-        [SerializeField] private float _attackCooldown = 1f;
-        [SerializeField] private int _supplyCost = 1;
+        [SerializeField] private float _attackDamage    = 10f;
+        [SerializeField] private float _attackRange     = 2f;
+        [SerializeField] private float _attackCooldown  = 1f;
+        [SerializeField] private int   _supplyCost      = 1;
+        [SerializeField] private float _bonusPerAttackLevel = 5f;
+        [SerializeField] private float _armorPerLevel       = 2f;
+
+        private float TotalAttack => _attackDamage + Blacksmith.AttackLevel * _bonusPerAttackLevel;
 
         private UnitBase _target;
         private float _attackTimer;
@@ -27,6 +32,13 @@ namespace Pantheum.Units
         {
             base.Awake();
             _attackTimer = _attackCooldown;
+        }
+
+        public override void TakeDamage(float amount)
+        {
+            if (Faction == Faction.Player)
+                amount = Mathf.Max(0f, amount - Blacksmith.ArmorLevel * _armorPerLevel);
+            base.TakeDamage(amount);
         }
 
         protected override void OnDeath()
@@ -67,7 +79,7 @@ namespace Pantheum.Units
                 StopMoving();
                 if (_attackTimer <= 0f)
                 {
-                    _target.TakeDamage(_attackDamage);
+                    _target.TakeDamage(TotalAttack);
                     _attackTimer = _attackCooldown;
                 }
             }

@@ -148,7 +148,7 @@ MonoBehaviour:
   _castleReqForTier2: 2
   _castleReqForTier3: 3
   _tierVisuals: []
-  _supplyProvided: 5
+  _supplyPerTier: 050000000a0000000f000000
 --- !u!114 &5137641716521697757
 MonoBehaviour:
   m_ObjectHideFlags: 0

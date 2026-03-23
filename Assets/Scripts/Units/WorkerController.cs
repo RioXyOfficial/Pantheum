@@ -28,11 +28,19 @@ namespace Pantheum.Units
         private Castle            _homeBase;
         private ResourceNode      _targetResource;
         private ConstructionSite  _targetSite;
+        private float             _siteProximityThreshold;
         private WorkerState       _state = WorkerState.Idle;
         private int               _carryingGold;
         private int               _carryingMana;
         private float             _harvestTimer;
         private float             _depositTimer;
+        private NavMeshPath _navPath;
+
+        protected override void Awake()
+        {
+            base.Awake();
+            _navPath = new NavMeshPath();
+        }
 
         public bool Initialize(Castle homeBase)
         {
@@ -70,6 +78,8 @@ namespace Pantheum.Units
             CancelTask();
             _targetSite = site;
             site.AssignWorker(this);
+            float cell = GridSystem.Instance != null ? GridSystem.Instance.CellSize : 1f;
+            _siteProximityThreshold = Mathf.Max(site.GridSize.x, site.GridSize.y) * cell * 0.5f + 1.5f;
             _state = WorkerState.MovingToBuild;
             MoveToBuilding(site.transform.position, site.GridSize);
             Debug.Log($"[WorkerController] → Construction vers {site.name}.");
@@ -94,33 +104,45 @@ namespace Pantheum.Units
         private Vector3 AccessPointFor(Vector3 center, Vector2Int gridSize)
         {
             float cell       = GridSystem.Instance != null ? GridSystem.Instance.CellSize : 1f;
-            float halfExtent = Mathf.Max(gridSize.x, gridSize.y) * cell * 0.5f + 0.1f;
+            float halfExtent = Mathf.Max(gridSize.x, gridSize.y) * cell * 0.5f + 0.5f;
+            const int attempts = 8;
 
-            Vector3 dir = transform.position - center;
-            dir.y = 0f;
-            if (dir.sqrMagnitude < 0.001f) dir = Vector3.forward;
-            dir.Normalize();
+            Vector3 toWorker = transform.position - center;
+            toWorker.y = 0f;
+            if (toWorker.sqrMagnitude < 0.001f) toWorker = Vector3.forward;
+            float startAngle = Mathf.Atan2(toWorker.z, toWorker.x);
 
-            // Probe just outside the building edge on the worker's side.
-            Vector3 probe = new(center.x + dir.x * halfExtent,
-                                center.y,
-                                center.z + dir.z * halfExtent);
+            // Try 8 angles around the building starting from the worker's side.
+            // Pick the first one with a complete NavMesh path — avoids blocked sides.
+            for (int i = 0; i < attempts; i++)
+            {
+                float a = startAngle + (i / (float)attempts) * Mathf.PI * 2f;
+                Vector3 probe = new(center.x + Mathf.Cos(a) * halfExtent,
+                                    center.y,
+                                    center.z + Mathf.Sin(a) * halfExtent);
 
-            return NavMesh.SamplePosition(probe, out NavMeshHit hit, 2f, NavMesh.AllAreas)
-                ? hit.position
-                : probe;
+                if (!NavMesh.SamplePosition(probe, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+                    continue;
+
+                if (NavMesh.CalculatePath(transform.position, hit.position, NavMesh.AllAreas, _navPath)
+                    && _navPath.status == NavMeshPathStatus.PathComplete)
+                    return hit.position;
+            }
+
+            // Fallback: return nearest NavMesh point on the worker's side even if path is partial.
+            Vector3 fallbackProbe = center + toWorker.normalized * halfExtent;
+            return NavMesh.SamplePosition(fallbackProbe, out NavMeshHit fb, 5f, NavMesh.AllAreas)
+                ? fb.position
+                : fallbackProbe;
         }
 
         // True when the worker is within interaction range of the site —
         // handles the case where another worker is blocking the exact nav destination.
         private bool IsNearSite(ConstructionSite site)
         {
-            float cell      = GridSystem.Instance != null ? GridSystem.Instance.CellSize : 1f;
-            float halfExtent = Mathf.Max(site.GridSize.x, site.GridSize.y) * cell * 0.5f;
-            float threshold = halfExtent + 1.5f;
-            Vector3 diff    = transform.position - site.transform.position;
+            Vector3 diff = transform.position - site.transform.position;
             diff.y = 0f;
-            return diff.magnitude <= threshold;
+            return diff.magnitude <= _siteProximityThreshold;
         }
 
         private void CancelTask()
@@ -140,6 +162,12 @@ namespace Pantheum.Units
         {
             _targetSite = null;
             _state = WorkerState.Idle;
+        }
+
+        public void NotifyHomeDestroyed()
+        {
+            _homeBase = null;
+            CancelTask();
         }
 
         private void Update()

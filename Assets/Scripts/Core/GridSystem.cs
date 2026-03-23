@@ -85,11 +85,6 @@ namespace Pantheum.Core
 
         public void ClearPlacementPreview() => _hasPreview = false;
 
-        // Legacy helpers kept for compatibility — now delegate to SetPlacementPreview.
-        public void DrawDebugGrid(Vector3 center)     { /* grid drawn in OnRenderObject */ }
-        public void DrawDebugFootprint(Vector3 center, Vector2Int size, bool valid)
-            => SetPlacementPreview(center, size, valid);
-
         // ── GL Rendering (URP-compatible) ─────────────────────────────────────
 
         private void OnEndCameraRendering(ScriptableRenderContext context, Camera cam)

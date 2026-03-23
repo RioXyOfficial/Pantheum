@@ -142,7 +142,11 @@ namespace Pantheum.Buildings
         public void RegisterCastleTier(BuildingBase b)
         {
             if (b is Castle castle && castle.Faction == Faction.Player)
-                _castlesByTier[(int)castle.Tier - 1].Add(castle);
+            {
+                var list = _castlesByTier[(int)castle.Tier - 1];
+                if (!list.Contains(castle))
+                    list.Add(castle);
+            }
         }
 
         /// <summary>

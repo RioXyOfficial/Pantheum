@@ -26,14 +26,31 @@ namespace Pantheum.UI
 
         private void Start() => _selectionManager = SelectionManager.Instance;
 
+        /// <summary>
+        /// True when the mouse is over an active UI panel this frame.
+        /// Read by SelectionManager to avoid click-through.
+        /// </summary>
+        public static bool IsPointerOverUI { get; private set; }
+
         private void OnGUI()
         {
             DrawResourceBar();
 
-            if (_selectionManager == null) return;
+            if (_selectionManager == null) { IsPointerOverUI = false; return; }
             var selected = _selectionManager.Selected;
-            if (selected.Count == 0) return;
 
+            // Update block flag using IMGUI mouse coords (top-left origin).
+            if (selected.Count > 0)
+            {
+                var panelRect = new Rect(0, Screen.height - _panelHeight, Screen.width, _panelHeight);
+                IsPointerOverUI = panelRect.Contains(Event.current.mousePosition);
+            }
+            else
+            {
+                IsPointerOverUI = false;
+            }
+
+            if (selected.Count == 0) return;
             DrawSelectionPanel(selected);
         }
 
@@ -159,6 +176,13 @@ namespace Pantheum.UI
                     DrawProductionStatus(production.QueueCount, production.MaxQueueSize,
                                          production.IsProducing, production.TimeRemaining);
 
+            }
+
+            // Bouton Démolir — tous les bâtiments sauf le Castle du joueur
+            if (building != null && building.BuildingType != BuildingType.Castle)
+            {
+                if (GUILayout.Button("Démolir"))
+                    building.Demolish();
             }
 
             // Bouton d'upgrade de tier — tous les bâtiments upgradables

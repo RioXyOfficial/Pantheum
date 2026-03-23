@@ -216,6 +216,8 @@ namespace Pantheum.Buildings
                 mr.materials = data.materials;
         }
 
+        public void Demolish() => OnDeath();
+
         public virtual void TakeDamage(float amount)
         {
             _currentHealth = Mathf.Max(0f, _currentHealth - amount);

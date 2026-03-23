@@ -14,7 +14,7 @@ namespace Pantheum.Construction
     // Call Init() immediately after Instantiate, before the first Update.
     public class ConstructionSite : MonoBehaviour
     {
-        [Header("Defaults (used when Init() is not called, e.g. TestBootstrap)")]
+        [Header("Defaults (fallback when Init() is not called)")]
         [SerializeField] private GameObject _fallbackBuildingPrefab;
         [SerializeField] private float      _maxHealth = 500f;
         [SerializeField] private float      _buildRate = 50f;

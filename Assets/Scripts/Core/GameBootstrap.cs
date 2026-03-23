@@ -31,12 +31,15 @@ namespace Pantheum.Core
             new PlayerConfig { playerName = "Player 2", faction = Faction.Enemy,  spawnX =  30f, spawnZ =  30f, startingWorkers = 0 },
         };
 
-        private void Start()
+        // IEnumerator Start() runs as a coroutine — Unity handles it automatically.
+        // Yielding between worker spawns ensures each one gets its own frame so
+        // the NavMesh has time to register the previous agent before the next spawn.
+        private System.Collections.IEnumerator Start()
         {
             if (_castlePrefab == null)
             {
                 Debug.LogError("[GameBootstrap] Castle prefab not assigned.");
-                return;
+                yield break;
             }
 
             bool cameraSet = false;
@@ -46,16 +49,19 @@ namespace Pantheum.Core
                 var castle = SpawnCastle(config);
                 if (castle == null) continue;
 
-                // Spawn initial workers for this player
-                for (int i = 0; i < config.startingWorkers; i++)
-                    castle.SpawnWorkerImmediate();
-
                 // Center camera on the first Player-faction castle
                 if (!cameraSet && config.faction == Faction.Player)
                 {
                     var rtsCamera = Camera.main?.GetComponent<RTSCamera>();
                     rtsCamera?.CenterOn(castle.transform.position);
                     cameraSet = true;
+                }
+
+                // Spawn initial workers one per frame so NavMesh positions don't collide.
+                for (int i = 0; i < config.startingWorkers; i++)
+                {
+                    castle.SpawnWorkerImmediate();
+                    yield return null;
                 }
             }
         }

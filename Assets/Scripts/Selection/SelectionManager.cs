@@ -4,6 +4,7 @@ using UnityEngine.InputSystem;
 using Pantheum.Buildings;
 using Pantheum.Construction;
 using Pantheum.Core;
+using Pantheum.UI;
 using Pantheum.Units;
 
 namespace Pantheum.Selection
@@ -12,13 +13,12 @@ namespace Pantheum.Selection
     /// Gère la sélection (clic gauche / drag) et les commandes (clic droit).
     ///
     /// Clic gauche  — sélectionne l'objet visé ; Shift = ajout à la sélection.
+    ///               Si la souris est sur le panel UI et qu'aucun objet n'est visé,
+    ///               la sélection courante est conservée (pas de désélection involontaire).
     /// Clic droit   — commande contextuelle sur la sélection courante :
-    ///                  • ResourceNode  → Workers assignés à la récolte
-    ///                  • ConstructionSite → Workers assignés à la construction
-    ///                  • Terrain        → toutes les unités se déplacent
-    ///
-    /// Les clics dans la zone UI du bas (_bottomUIHeight) sont ignorés pour ne pas
-    /// déclencher de désélection quand on clique sur un bouton IMGUI.
+    ///                  • ResourceNode      → Workers assignés à la récolte
+    ///                  • ConstructionSite  → Workers assignés à la construction
+    ///                  • Terrain           → toutes les unités se déplacent
     /// </summary>
     public class SelectionManager : MonoBehaviour
     {
@@ -28,14 +28,10 @@ namespace Pantheum.Selection
         [SerializeField] private LayerMask _selectableLayer;
         [SerializeField] private LayerMask _groundLayer;
 
-        [Header("UI")]
-        [SerializeField] private float _bottomUIHeight = 200f; // doit correspondre à SelectionPanel._panelHeight
-
         private readonly List<Selectable> _selected = new();
         private readonly HashSet<Selectable> _selectedSet = new();
         private Vector2 _dragStart;
         private bool _isDragging;
-        private bool _clickStartedInUI;
         private bool _clickStartedDuringPlacement;
         private Camera _cam;
         private Vector2 _dragCurrent;
@@ -56,59 +52,63 @@ namespace Pantheum.Selection
             var mouse = Mouse.current;
             if (mouse == null) return;
 
-            bool inUI = mouse.position.ReadValue().y < _bottomUIHeight;
-
             // ── Clic gauche : sélection ──────────────────────────────────
             if (mouse.leftButton.wasPressedThisFrame)
             {
-                _clickStartedInUI = inUI;
                 _clickStartedDuringPlacement = BuildingPlacer.IsActive;
-                if (!inUI) { _dragStart = mouse.position.ReadValue(); _isDragging = false; }
+                _dragStart  = mouse.position.ReadValue();
+                _isDragging = false;
             }
 
-            if (mouse.leftButton.isPressed && !_clickStartedInUI && !_clickStartedDuringPlacement)
+            if (mouse.leftButton.isPressed && !_clickStartedDuringPlacement)
             {
                 _dragCurrent = mouse.position.ReadValue();
                 if (Vector2.Distance(_dragStart, _dragCurrent) > 20f)
                     _isDragging = true;
             }
 
-            if (mouse.leftButton.wasReleasedThisFrame)
+            if (mouse.leftButton.wasReleasedThisFrame && !_clickStartedDuringPlacement)
             {
-                if (!_clickStartedInUI && !_clickStartedDuringPlacement)
-                {
-                    bool additive   = Keyboard.current?.leftShiftKey.isPressed ?? false;
-                    Vector2 release = mouse.position.ReadValue();
-                    // Use final distance so the mouse returning near the start = click, not drag.
-                    bool isRealDrag = _isDragging && Vector2.Distance(_dragStart, release) > 10f;
-                    if (isRealDrag) SelectInBox(_dragStart, release, additive);
-                    else            SelectAtPoint(release, additive);
-                }
+                bool additive   = Keyboard.current?.leftShiftKey.isPressed ?? false;
+                Vector2 release = mouse.position.ReadValue();
+                bool isRealDrag = _isDragging && Vector2.Distance(_dragStart, release) > 10f;
+
+                if (isRealDrag)
+                    SelectInBox(_dragStart, release, additive);
+                else
+                    // skipDeselectIfMiss = true when the panel is showing so that clicking
+                    // buttons / grey area doesn't accidentally deselect the current object.
+                    SelectAtPoint(release, additive, skipDeselectIfMiss: SelectionPanel.IsPointerOverUI);
+
                 _isDragging = false;
-                _clickStartedInUI = false;
                 _clickStartedDuringPlacement = false;
             }
 
             // ── Clic droit : commande ────────────────────────────────────
-            if (mouse.rightButton.wasPressedThisFrame && !inUI && !BuildingPlacer.IsActive && _selected.Count > 0)
+            if (mouse.rightButton.wasPressedThisFrame
+                && !BuildingPlacer.IsActive
+                && _selected.Count > 0)
                 HandleCommand(mouse.position.ReadValue());
         }
 
         // ── Sélection ────────────────────────────────────────────────────────
 
-        private void SelectAtPoint(Vector2 screenPos, bool additive)
+        private void SelectAtPoint(Vector2 screenPos, bool additive, bool skipDeselectIfMiss = false)
         {
             Ray ray = _cam.ScreenPointToRay(screenPos);
             if (!Physics.Raycast(ray, out RaycastHit hit, 1000f, _selectableLayer))
             {
-                if (!additive) DeselectAll();
+                if (!skipDeselectIfMiss && !additive) DeselectAll();
                 return;
             }
 
             var sel = hit.collider.GetComponentInParent<Selectable>();
-            if (sel == null) { if (!additive) DeselectAll(); return; }
+            if (sel == null)
+            {
+                if (!skipDeselectIfMiss && !additive) DeselectAll();
+                return;
+            }
 
-            // Les bâtiments remplacent toujours la sélection entière (jamais multi-sélectionnables)
             bool isBuilding = sel.GetComponent<BuildingBase>() != null;
             if (!additive || isBuilding) DeselectAll();
 
@@ -121,7 +121,6 @@ namespace Pantheum.Selection
             Rect rect = ScreenRect(screenA, screenB);
             foreach (var sel in Selectable.All)
             {
-                // Drag-box : unités uniquement — les bâtiments sont exclus
                 if (sel.GetComponent<BuildingBase>() != null) continue;
                 Vector2 sp = _cam.WorldToScreenPoint(sel.transform.position);
                 if (rect.Contains(sp)) AddToSelection(sel);
@@ -130,7 +129,6 @@ namespace Pantheum.Selection
 
         private void AddToSelection(Selectable sel)
         {
-            // Block selection of enemy-faction objects
             if (sel.GetComponent<BuildingBase>()?.Faction == Faction.Enemy) return;
             if (sel.GetComponent<UnitBase>()    ?.Faction == Faction.Enemy) return;
 
@@ -159,8 +157,6 @@ namespace Pantheum.Selection
         {
             Ray ray = _cam.ScreenPointToRay(screenPos);
 
-            // Priorité 1 : objet sélectionnable visé (ConstructionSite avant ResourceNode —
-            // un chantier est le prefab du bâtiment donc il a aussi ResourceNode dessus).
             if (Physics.Raycast(ray, out RaycastHit selHit, 1000f, _selectableLayer))
             {
                 var site = selHit.collider.GetComponentInParent<ConstructionSite>();
@@ -180,7 +176,6 @@ namespace Pantheum.Selection
                 }
             }
 
-            // Priorité 2 : déplacement vers le terrain
             if (Physics.Raycast(ray, out RaycastHit groundHit, 1000f, _groundLayer))
             {
                 foreach (var sel in _selected)
@@ -214,7 +209,6 @@ namespace Pantheum.Selection
         {
             if (!_isDragging) return;
 
-            // Input System uses bottom-left origin; GUI uses top-left — flip Y.
             float startY   = Screen.height - _dragStart.y;
             float currentY = Screen.height - _dragCurrent.y;
 
@@ -225,15 +219,13 @@ namespace Pantheum.Selection
 
             Rect rect = new(x, y, w, h);
 
-            // Fill
             GUI.DrawTexture(rect, _boxFill);
 
-            // Border (1 px lines)
             float b = 1f;
-            GUI.DrawTexture(new Rect(x,         y,         w, b), _boxBorder); // top
-            GUI.DrawTexture(new Rect(x,         y + h - b, w, b), _boxBorder); // bottom
-            GUI.DrawTexture(new Rect(x,         y,         b, h), _boxBorder); // left
-            GUI.DrawTexture(new Rect(x + w - b, y,         b, h), _boxBorder); // right
+            GUI.DrawTexture(new Rect(x,         y,         w, b), _boxBorder);
+            GUI.DrawTexture(new Rect(x,         y + h - b, w, b), _boxBorder);
+            GUI.DrawTexture(new Rect(x,         y,         b, h), _boxBorder);
+            GUI.DrawTexture(new Rect(x + w - b, y,         b, h), _boxBorder);
         }
     }
 }

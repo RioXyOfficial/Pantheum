@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.AI;
 using Pantheum.Core;
 using Pantheum.UI;
 using Pantheum.Units;
@@ -19,7 +18,6 @@ namespace Pantheum.Buildings
 
         [Header("Worker Production")]
         [SerializeField] private GameObject _workerPrefab;
-        [SerializeField] private Transform _spawnPoint;
         [SerializeField] private int _workerGoldCost = 50;
         [SerializeField] private float _workerProductionTime = 10f;
         [SerializeField] private int _maxWorkerQueueSize = 5;
@@ -108,21 +106,11 @@ namespace Pantheum.Buildings
         {
             _workerQueueCount--;
 
-            Vector3 pos = _spawnPoint != null
-                ? _spawnPoint.position
-                : transform.position + transform.forward * 2f;
-
-            float angle = Random.Range(0f, 360f) * Mathf.Deg2Rad;
-            pos += new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * 1.2f;
-
-            if (NavMesh.SamplePosition(pos, out NavMeshHit hit, 3f, NavMesh.AllAreas))
-                pos = hit.position;
-
+            Vector3 pos = UnitProduction.FindSpawnPosition(transform.position, GridSize);
             var go = Instantiate(_workerPrefab, pos, Quaternion.identity);
             var worker = go.GetComponent<WorkerController>();
             if (worker != null && !worker.Initialize(this))
             {
-                // Castle plein entre-temps (worker mort pendant la queue) — remboursement
                 ResourceManager.Instance?.DepositGold(_workerGoldCost);
                 Debug.Log("[Castle] Worker rejeté après spawn — or remboursé.");
             }
@@ -137,6 +125,9 @@ namespace Pantheum.Buildings
         {
             _workerQueueCount = 0;
             _isProducingWorker = false;
+            foreach (var w in _workers)
+                w?.NotifyHomeDestroyed();
+            _workers.Clear();
             base.OnDeath();
         }
 
@@ -152,16 +143,7 @@ namespace Pantheum.Buildings
                 return;
             }
 
-            Vector3 pos = _spawnPoint != null
-                ? _spawnPoint.position
-                : transform.position + transform.forward * 2f;
-
-            float angle = Random.Range(0f, 360f) * Mathf.Deg2Rad;
-            pos += new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * 1.2f;
-
-            if (NavMesh.SamplePosition(pos, out NavMeshHit hit, 3f, NavMesh.AllAreas))
-                pos = hit.position;
-
+            Vector3 pos = UnitProduction.FindSpawnPosition(transform.position, GridSize);
             var go = Instantiate(_workerPrefab, pos, Quaternion.identity);
             var worker = go.GetComponent<WorkerController>();
             if (worker != null)

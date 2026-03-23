@@ -5,9 +5,11 @@ namespace Pantheum.Buildings
 {
     public class House : BuildingBase
     {
-        [SerializeField] private int _supplyProvided = 5;
+        [Tooltip("Supply provided at each tier (index 0 = T1, 1 = T2, 2 = T3).")]
+        [SerializeField] private int[] _supplyPerTier = { 5, 8, 12 };
 
         private bool _supplyActive;
+        private int  _currentSupply;
 
         protected override void Awake()
         {
@@ -21,7 +23,6 @@ namespace Pantheum.Buildings
             RemoveSupply();
         }
 
-        // Ghost/clone : retire le supply ajouté par Awake.
         public override void CancelRegistration()
         {
             if (!_registeredInManagers) return;
@@ -29,32 +30,43 @@ namespace Pantheum.Buildings
             RemoveSupply();
         }
 
-        // Chantier en cours : retire le supply (pas encore construit).
         public override void StartConstruction()
         {
             base.StartConstruction();
             RemoveSupply();
         }
 
-        // Construction terminée : re-ajoute le supply.
         public override void CompleteConstruction()
         {
             base.CompleteConstruction();
             AddSupply();
         }
 
+        protected override void OnTierUpgraded(int newTier)
+        {
+            RemoveSupply();
+            AddSupply();
+        }
+
+        private int SupplyForCurrentTier()
+        {
+            int idx = Mathf.Clamp(CurrentTier - 1, 0, _supplyPerTier.Length - 1);
+            return _supplyPerTier.Length > 0 ? _supplyPerTier[idx] : 5;
+        }
+
         private void AddSupply()
         {
             if (_supplyActive) return;
             if (SupplyManager.Instance == null) { Debug.LogError("[House] SupplyManager introuvable."); return; }
-            SupplyManager.Instance.AddCapacity(_supplyProvided);
+            _currentSupply = SupplyForCurrentTier();
+            SupplyManager.Instance.AddCapacity(_currentSupply);
             _supplyActive = true;
         }
 
         private void RemoveSupply()
         {
             if (!_supplyActive) return;
-            SupplyManager.Instance?.RemoveCapacity(_supplyProvided);
+            SupplyManager.Instance?.RemoveCapacity(_currentSupply);
             _supplyActive = false;
         }
     }

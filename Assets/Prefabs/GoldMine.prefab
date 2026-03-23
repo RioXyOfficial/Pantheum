@@ -149,7 +149,7 @@ MonoBehaviour:
   _castleReqForTier3: 3
   _tierVisuals: []
   _resourceType: 0
-  _harvestAmountPerTrip: 10
+  _harvestPerTier: 0a000000140000001e000000
   _harvestTime: 3
 --- !u!114 &6897209825930473669
 MonoBehaviour:
