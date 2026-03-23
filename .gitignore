@@ -99,3 +99,6 @@ InitTestScene*.unity*
 /[Aa]ssets/[Ii]nit[Tt]est[Ss]cene*.unity*Pantheum-dev/
 UpgradeLog.htm
 *.slnx
+.vscode/
+CLAUDE.md
+.vsconfig
