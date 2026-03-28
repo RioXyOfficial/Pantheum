@@ -1,17 +1,13 @@
 using System.Collections.Generic;
 using UnityEngine;
+using Mirror;
 using Pantheum.Core;
+using Pantheum.Network;
 using Pantheum.UI;
 using Pantheum.Units;
 
 namespace Pantheum.Buildings
 {
-    /// <summary>
-    /// Castle owns a Worker registry (hard cap: 15).
-    /// Always displays "X / 15" via IWorkerCountDisplay — not gated on selection.
-    /// Worker production uses an internal queue + timer, mirroring UnitProduction
-    /// for Barracks/Academy, but with Castle-specific cap and Initialize() call.
-    /// </summary>
     public class Castle : BuildingBase
     {
         public const int MaxWorkers = 15;
@@ -38,7 +34,6 @@ namespace Pantheum.Buildings
         public int  WorkerGoldCost      => _workerGoldCost;
         public int  MaxWorkerQueueSize  => _maxWorkerQueueSize;
         public bool IsProducingWorker   => _isProducingWorker;
-        /// <summary>Secondes restantes pour le Worker en cours de production (0 si idle).</summary>
         public float WorkerTimeRemaining => _isProducingWorker ? Mathf.Max(0f, _workerTimer) : 0f;
 
         protected override void Awake()
@@ -53,23 +48,40 @@ namespace Pantheum.Buildings
             _workerCountDisplay?.UpdateWorkerCount(0, MaxWorkers);
         }
 
+        public int DisplayWorkerCount
+        {
+            get
+            {
+                if (Mirror.NetworkClient.active && !Mirror.NetworkServer.active)
+                {
+                    var nfs = GetComponent<NetworkFactionSync>();
+                    return nfs != null ? nfs.WorkerCountSynced : 0;
+                }
+                return _workers.Count;
+            }
+        }
+
         protected override void OnTierUpgraded(int newTier)
         {
-            // CurrentTier is already newTier here; old tier is newTier - 1.
             BuildingManager.Instance?.UpdateCastleTier(this, (CastleTier)(newTier - 1));
+        }
+
+        private void SyncProductionState()
+        {
+            if (Mirror.NetworkServer.active)
+                GetComponent<NetworkFactionSync>()?.SetWorkerProductionState(
+                    _workerQueueCount, _isProducingWorker, _workerTimer);
         }
 
         private void Update()
         {
+            if (Mirror.NetworkClient.active && !Mirror.NetworkServer.active) return;
             if (!_isProducingWorker) return;
             _workerTimer -= Time.deltaTime;
             if (_workerTimer <= 0f) FinishWorkerSpawn();
+            SyncProductionState();
         }
 
-        /// <summary>
-        /// Enqueues a Worker for production. Deducts gold immediately.
-        /// Returns false if queue full, cap reached, or not enough gold.
-        /// </summary>
         public bool SpawnWorker()
         {
             if (_workerPrefab == null)
@@ -107,12 +119,21 @@ namespace Pantheum.Buildings
             _workerQueueCount--;
 
             Vector3 pos = UnitProduction.FindSpawnPosition(transform.position, GridSize);
+            pos = ApplyAgentBaseOffset(_workerPrefab, pos);
             var go = Instantiate(_workerPrefab, pos, Quaternion.identity);
             var worker = go.GetComponent<WorkerController>();
             if (worker != null && !worker.Initialize(this))
             {
                 ResourceManager.Instance?.DepositGold(_workerGoldCost);
                 Debug.Log("[Castle] Worker rejeté après spawn — or remboursé.");
+            }
+
+            if (NetworkServer.active)
+            {
+                var factionSync = go.GetComponent<NetworkFactionSync>();
+                if (factionSync != null) factionSync.SetNetworkFaction(Faction);
+                NetworkServer.Spawn(go);
+                PlayerNetworkController.BroadcastFaction(go.GetComponent<NetworkIdentity>(), Faction);
             }
 
             if (_workerQueueCount > 0)
@@ -131,10 +152,6 @@ namespace Pantheum.Buildings
             base.OnDeath();
         }
 
-        /// <summary>
-        /// Spawns a Worker instantly with no gold cost and no queue.
-        /// Used at game start to give the player their initial workers.
-        /// </summary>
         public void SpawnWorkerImmediate()
         {
             if (_workerPrefab == null)
@@ -144,24 +161,51 @@ namespace Pantheum.Buildings
             }
 
             Vector3 pos = UnitProduction.FindSpawnPosition(transform.position, GridSize);
+            pos = ApplyAgentBaseOffset(_workerPrefab, pos);
             var go = Instantiate(_workerPrefab, pos, Quaternion.identity);
             var worker = go.GetComponent<WorkerController>();
             if (worker != null)
                 worker.Initialize(this);
+
+            if (NetworkServer.active)
+            {
+                var factionSync = go.GetComponent<NetworkFactionSync>();
+                if (factionSync != null) factionSync.SetNetworkFaction(Faction);
+                NetworkServer.Spawn(go);
+                PlayerNetworkController.BroadcastFaction(go.GetComponent<NetworkIdentity>(), Faction);
+            }
         }
 
         public bool TryRegisterWorker(WorkerController worker)
         {
             if (_workers.Count >= MaxWorkers) return false;
             _workers.Add(worker);
-            _workerCountDisplay?.UpdateWorkerCount(_workers.Count, MaxWorkers);
+            NotifyWorkerCountChanged();
             return true;
         }
 
         public void UnregisterWorker(WorkerController worker)
         {
             _workers.Remove(worker);
+            NotifyWorkerCountChanged();
+        }
+
+        private void NotifyWorkerCountChanged()
+        {
             _workerCountDisplay?.UpdateWorkerCount(_workers.Count, MaxWorkers);
+            if (NetworkServer.active)
+                GetComponent<NetworkFactionSync>()?.SetWorkerCount(_workers.Count);
+        }
+
+        public void ApplyWorkerCountDisplay(int count)
+        {
+            _workerCountDisplay?.UpdateWorkerCount(count, MaxWorkers);
+        }
+
+        private static Vector3 ApplyAgentBaseOffset(GameObject prefab, Vector3 pos)
+        {
+            var agent = prefab != null ? prefab.GetComponent<UnityEngine.AI.NavMeshAgent>() : null;
+            return agent != null ? new Vector3(pos.x, pos.y + agent.baseOffset, pos.z) : pos;
         }
     }
 }

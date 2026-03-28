@@ -4,11 +4,6 @@ namespace Pantheum.Buildings
 {
     public enum ResourceType { Gold, Mana }
 
-    /// <summary>
-    /// Base class for GoldMine and ManaExtractor.
-    /// Workers query HarvestAmountPerTrip and HarvestTime from this component.
-    /// Harvest amount scales with tier.
-    /// </summary>
     public class ResourceNode : BuildingBase
     {
         [Header("Resource")]

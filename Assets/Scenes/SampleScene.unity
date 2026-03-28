@@ -136,6 +136,7 @@ GameObject:
   - component: {fileID: 172883388}
   - component: {fileID: 172883387}
   - component: {fileID: 172883395}
+  - component: {fileID: 172883396}
   m_Layer: 0
   m_Name: Managers
   m_TagString: Untagged
@@ -157,7 +158,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Pantheum.Core.GridSystem
   _cellSize: 1
   _debugDraw: 1
-  _debugRadius: 6
 --- !u!114 &172883388
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -174,8 +174,6 @@ MonoBehaviour:
   _groundLayer:
     serializedVersion: 2
     m_Bits: 64
-  _colorValid: {r: 0, g: 0, b: 0, a: 0}
-  _colorInvalid: {r: 0, g: 0, b: 0, a: 0}
 --- !u!114 &172883389
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -206,7 +204,6 @@ MonoBehaviour:
   _groundLayer:
     serializedVersion: 2
     m_Bits: 64
-  _bottomUIHeight: 200
 --- !u!114 &172883391
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -245,6 +242,31 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 59199d86400a27b41a1d6be002e3dd29, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Pantheum.Buildings.BuildingManager
+  _limitEntries:
+  - type: 1
+    t1: 1
+    t2: 2
+    t3: 2
+  - type: 2
+    t1: 0
+    t2: 1
+    t3: 2
+  - type: 3
+    t1: 0
+    t2: 1
+    t3: 1
+  - type: 4
+    t1: 3
+    t2: 5
+    t3: 7
+  - type: 5
+    t1: 2
+    t2: 3
+    t3: 4
+  - type: 6
+    t1: 2
+    t2: 3
+    t3: 4
 --- !u!4 &172883394
 Transform:
   m_ObjectHideFlags: 0
@@ -283,7 +305,19 @@ MonoBehaviour:
     faction: 1
     spawnX: -35
     spawnZ: -35
-    startingWorkers: 0
+    startingWorkers: 2
+--- !u!114 &172883396
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 172883386}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 24c19d7d998094440ad6c88c2fcba7fb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Pantheum.Selection.SelectionIndicator
 --- !u!1 &330585543
 GameObject:
   m_ObjectHideFlags: 0
@@ -774,6 +808,7 @@ GameObject:
   - component: {fileID: 981127051}
   - component: {fileID: 981127050}
   - component: {fileID: 981127049}
+  - component: {fileID: 981127052}
   m_Layer: 0
   m_Name: UI
   m_TagString: Untagged
@@ -797,20 +832,32 @@ MonoBehaviour:
   _entries:
   - label: Castle
     type: 0
-    goldCost: 200
+    goldCost: 50
     buildingPrefab: {fileID: 4059202506703176264, guid: 658844d714276164fad21a2ce538e61a, type: 3}
   - label: House
     type: 4
-    goldCost: 150
+    goldCost: 50
     buildingPrefab: {fileID: 7565821774180509967, guid: 0ca8f077a80e6254ebf7b6ec057d28bc, type: 3}
   - label: Barracks
     type: 1
-    goldCost: 100
+    goldCost: 50
     buildingPrefab: {fileID: 7659990644363577559, guid: 4d21e20f3adf3394fad6143a72c1e9a0, type: 3}
   - label: Gold Mine
     type: 5
     goldCost: 50
-    buildingPrefab: {fileID: 8839453531756631621, guid: 4e776c4059cda6a48a7c27b2ec8b2b0a, type: 3}
+    buildingPrefab: {fileID: 8271953210045781391, guid: 6b0a96bd6bb8dc44882aa1a8ddccfa4d, type: 3}
+  - label: Mana  Extractor
+    type: 6
+    goldCost: 50
+    buildingPrefab: {fileID: 2905815980035497252, guid: 8190a34af8f7a164ab74a8df58b8721f, type: 3}
+  - label: Blacksmith
+    type: 3
+    goldCost: 50
+    buildingPrefab: {fileID: 7399730141695584062, guid: 116dc65d792faed4e922a0e108d37e4f, type: 3}
+  - label: Academy
+    type: 2
+    goldCost: 50
+    buildingPrefab: {fileID: 4595839704542910726, guid: c00fad49c8dc1a34f85f901a652847e2, type: 3}
 --- !u!114 &981127050
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -840,7 +887,19 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1468614748
+--- !u!114 &981127052
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 981127048}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: efb3335d4e1758c4ab84594b29f9a0f2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Pantheum.Network.NetworkLobbyUI
+--- !u!1 &1008961514
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -848,47 +907,118 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1468614750}
-  - component: {fileID: 1468614749}
+  - component: {fileID: 1008961515}
+  - component: {fileID: 1008961516}
+  - component: {fileID: 1008961517}
   m_Layer: 0
-  m_Name: TestBootstrap
+  m_Name: Network
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1468614749
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1468614748}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 59a03a17a70eecc4fac645b6eeb6afe9, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::TestBootstrap
-  targetCastle: {fileID: 0}
-  workerPrefab: {fileID: 986276231747775917, guid: 2079da40459aea44e97c021950d87c2c, type: 3}
-  constructionSitePrefab: {fileID: 3009271263034894153, guid: 51a16bccc9d7bbe4696b1e68788590f0, type: 3}
-  housePrefab: {fileID: 7565821774180509967, guid: 0ca8f077a80e6254ebf7b6ec057d28bc, type: 3}
-  houseForConstruction: {fileID: 0}
---- !u!4 &1468614750
+--- !u!4 &1008961515
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1468614748}
+  m_GameObject: {fileID: 1008961514}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -29.15986, y: 0, z: 9.66416}
+  m_LocalPosition: {x: -9.68165, y: 0, z: 10.30075}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1008961516
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1008961514}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 85657627d54fc19488a1388ff1bf69c5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Pantheum.Network.PantheumNetworkManager
+  dontDestroyOnLoad: 1
+  runInBackground: 1
+  headlessStartMode: 0
+  editorAutoStart: 0
+  sendRate: 60
+  offlineScene: 
+  onlineScene: 
+  offlineSceneLoadDelay: 0
+  transport: {fileID: 1008961517}
+  networkAddress: localhost
+  maxConnections: 2
+  disconnectInactiveConnections: 0
+  disconnectInactiveTimeout: 999
+  authenticator: {fileID: 0}
+  playerPrefab: {fileID: 8956853394694541058, guid: 32eb7d83656e4ca459c40c7aad23ea04, type: 3}
+  autoCreatePlayer: 1
+  playerSpawnMethod: 0
+  spawnPrefabs:
+  - {fileID: 4595839704542910726, guid: c00fad49c8dc1a34f85f901a652847e2, type: 3}
+  - {fileID: 6234815162008617051, guid: 8c0c741b286169e4d948be61fc3fb2ac, type: 3}
+  - {fileID: 7659990644363577559, guid: 4d21e20f3adf3394fad6143a72c1e9a0, type: 3}
+  - {fileID: 7399730141695584062, guid: 116dc65d792faed4e922a0e108d37e4f, type: 3}
+  - {fileID: 4059202506703176264, guid: 658844d714276164fad21a2ce538e61a, type: 3}
+  - {fileID: 8271953210045781391, guid: 6b0a96bd6bb8dc44882aa1a8ddccfa4d, type: 3}
+  - {fileID: 7565821774180509967, guid: 0ca8f077a80e6254ebf7b6ec057d28bc, type: 3}
+  - {fileID: 3447468708026335422, guid: 778d28315dc1b134586275f94307fc52, type: 3}
+  - {fileID: 289121558737855128, guid: 903d78fc74e23a341bca8fca38678524, type: 3}
+  - {fileID: 2905815980035497252, guid: 8190a34af8f7a164ab74a8df58b8721f, type: 3}
+  - {fileID: 3944677347051988761, guid: 26cdaf996ab67ab4591040cc40a56e9e, type: 3}
+  - {fileID: 986276231747775917, guid: 2079da40459aea44e97c021950d87c2c, type: 3}
+  exceptionsDisconnect: 1
+  snapshotSettings:
+    bufferTimeMultiplier: 2
+    bufferLimit: 32
+    catchupNegativeThreshold: -1
+    catchupPositiveThreshold: 1
+    catchupSpeed: 0.019999999552965164
+    slowdownSpeed: 0.03999999910593033
+    driftEmaDuration: 1
+    dynamicAdjustment: 1
+    dynamicAdjustmentTolerance: 1
+    deliveryTimeEmaDuration: 2
+  evaluationMethod: 0
+  evaluationInterval: 3
+  timeInterpolationGui: 0
+  _playerControllerPrefab: {fileID: 8956853394694541058, guid: 32eb7d83656e4ca459c40c7aad23ea04, type: 3}
+--- !u!114 &1008961517
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1008961514}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6b0fecffa3f624585964b0d0eb21b18e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Mirror.Transports::kcp2k.KcpTransport
+  port: 7777
+  DualMode: 1
+  NoDelay: 1
+  Interval: 10
+  Timeout: 10000
+  RecvBufferSize: 7361536
+  SendBufferSize: 7361536
+  FastResend: 2
+  ReceiveWindowSize: 4096
+  SendWindowSize: 4096
+  MaxRetransmit: 40
+  MaximizeSocketBuffers: 1
+  ReliableMaxMessageSize: 297433
+  UnreliableMaxMessageSize: 1194
+  debugLog: 0
+  statisticsGUI: 0
+  statisticsLog: 0
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -898,5 +1028,5 @@ SceneRoots:
   - {fileID: 832575519}
   - {fileID: 172883394}
   - {fileID: 981127051}
-  - {fileID: 1468614750}
   - {fileID: 484188200}
+  - {fileID: 1008961515}

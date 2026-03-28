@@ -1,25 +1,16 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Mirror;
 using Pantheum.Buildings;
 using Pantheum.Construction;
 using Pantheum.Core;
+using Pantheum.Network;
 using Pantheum.UI;
 using Pantheum.Units;
 
 namespace Pantheum.Selection
 {
-    /// <summary>
-    /// Gère la sélection (clic gauche / drag) et les commandes (clic droit).
-    ///
-    /// Clic gauche  — sélectionne l'objet visé ; Shift = ajout à la sélection.
-    ///               Si la souris est sur le panel UI et qu'aucun objet n'est visé,
-    ///               la sélection courante est conservée (pas de désélection involontaire).
-    /// Clic droit   — commande contextuelle sur la sélection courante :
-    ///                  • ResourceNode      → Workers assignés à la récolte
-    ///                  • ConstructionSite  → Workers assignés à la construction
-    ///                  • Terrain           → toutes les unités se déplacent
-    /// </summary>
     public class SelectionManager : MonoBehaviour
     {
         public static SelectionManager Instance { get; private set; }
@@ -28,21 +19,22 @@ namespace Pantheum.Selection
         [SerializeField] private LayerMask _selectableLayer;
         [SerializeField] private LayerMask _groundLayer;
 
-        private readonly List<Selectable> _selected = new();
+        private readonly List<Selectable> _selected    = new();
         private readonly HashSet<Selectable> _selectedSet = new();
-        private Vector2 _dragStart;
-        private bool _isDragging;
-        private bool _clickStartedDuringPlacement;
-        private Camera _cam;
-        private Vector2 _dragCurrent;
+        private Vector2  _dragStart;
+        private bool     _isDragging;
+        private bool     _clickStartedDuringPlacement;
+        private Camera   _cam;
+        private Vector2  _dragCurrent;
+        private bool     _attackMoveQueued;
 
         public IReadOnlyList<Selectable> Selected => _selected;
 
         private void Awake()
         {
             if (Instance != null && Instance != this) { Destroy(gameObject); return; }
-            Instance = this;
-            _cam = Camera.main;
+            Instance   = this;
+            _cam       = Camera.main;
             _boxFill   = MakeTex(new Color(0.2f, 0.6f, 1f, 0.08f));
             _boxBorder = MakeTex(new Color(0.2f, 0.7f, 1f, 0.7f));
         }
@@ -52,7 +44,6 @@ namespace Pantheum.Selection
             var mouse = Mouse.current;
             if (mouse == null) return;
 
-            // ── Clic gauche : sélection ──────────────────────────────────
             if (mouse.leftButton.wasPressedThisFrame)
             {
                 _clickStartedDuringPlacement = BuildingPlacer.IsActive;
@@ -76,22 +67,23 @@ namespace Pantheum.Selection
                 if (isRealDrag)
                     SelectInBox(_dragStart, release, additive);
                 else
-                    // skipDeselectIfMiss = true when the panel is showing so that clicking
-                    // buttons / grey area doesn't accidentally deselect the current object.
                     SelectAtPoint(release, additive, skipDeselectIfMiss: SelectionPanel.IsPointerOverUI);
 
                 _isDragging = false;
                 _clickStartedDuringPlacement = false;
             }
 
-            // ── Clic droit : commande ────────────────────────────────────
+            if (Keyboard.current?.aKey.wasPressedThisFrame ?? false)
+                _attackMoveQueued = true;
+
             if (mouse.rightButton.wasPressedThisFrame
                 && !BuildingPlacer.IsActive
                 && _selected.Count > 0)
+            {
                 HandleCommand(mouse.position.ReadValue());
+                _attackMoveQueued = false;
+            }
         }
-
-        // ── Sélection ────────────────────────────────────────────────────────
 
         private void SelectAtPoint(Vector2 screenPos, bool additive, bool skipDeselectIfMiss = false)
         {
@@ -129,15 +121,16 @@ namespace Pantheum.Selection
 
         private void AddToSelection(Selectable sel)
         {
-            if (sel.GetComponent<BuildingBase>()?.Faction == Faction.Enemy) return;
-            if (sel.GetComponent<UnitBase>()    ?.Faction == Faction.Enemy) return;
+            Faction localFaction   = PlayerNetworkController.LocalPlayer?.Faction ?? Faction.Player;
+            Faction opponentFaction = localFaction == Faction.Player ? Faction.Enemy : Faction.Player;
+            if (sel.GetComponent<BuildingBase>()?.Faction == opponentFaction) return;
+            if (sel.GetComponent<UnitBase>()?.Faction == opponentFaction) return;
 
             if (!_selectedSet.Add(sel)) return;
             _selected.Add(sel);
             sel.OnSelected();
         }
 
-        /// <summary>Called by Selectable.OnDisable() when a selected object is destroyed.</summary>
         public void RemoveFromSelection(Selectable sel)
         {
             if (_selectedSet.Remove(sel))
@@ -151,49 +144,140 @@ namespace Pantheum.Selection
             _selectedSet.Clear();
         }
 
-        // ── Commandes clic droit ─────────────────────────────────────────────
-
         private void HandleCommand(Vector2 screenPos)
         {
             Ray ray = _cam.ScreenPointToRay(screenPos);
 
             if (Physics.Raycast(ray, out RaycastHit selHit, 1000f, _selectableLayer))
             {
-                var site = selHit.collider.GetComponentInParent<ConstructionSite>();
+                if (_attackMoveQueued)
+                {
+                    var targetBuilding = selHit.collider.GetComponentInParent<BuildingBase>();
+                    if (targetBuilding != null)
+                    {
+                        Faction localFaction = PlayerNetworkController.LocalPlayer?.Faction ?? Faction.Player;
+                        if (targetBuilding.Faction != localFaction)
+                        {
+                            var buildingNI = targetBuilding.GetComponent<NetworkIdentity>();
+                            foreach (var sel in _selected)
+                            {
+                                var combat = sel.GetComponent<CombatUnit>();
+                                if (combat == null) continue;
+                                var ni = sel.GetComponent<NetworkIdentity>();
+                                if (NetworkClient.active && ni != null && buildingNI != null)
+                                    PlayerNetworkController.LocalPlayer?.CmdAttackBuilding(ni, buildingNI);
+                                else
+                                    combat.SetBuildingTarget(targetBuilding);
+                            }
+                            return;
+                        }
+                    }
+                }
+
+                ConstructionSite site = selHit.collider.GetComponentInParent<ConstructionSite>();
+                if (site == null)
+                {
+                    var hitBuilding = selHit.collider.GetComponentInParent<BuildingBase>();
+                    if (hitBuilding != null)
+                        site = hitBuilding.GetComponent<ConstructionSite>();
+                }
+
                 if (site != null)
                 {
+                    var siteNI = site.GetComponent<NetworkIdentity>();
                     foreach (var sel in _selected)
-                        sel.GetComponent<WorkerController>()?.AssignToConstruction(site);
+                    {
+                        var worker = sel.GetComponent<WorkerController>();
+                        if (worker == null) continue;
+
+                        if (NetworkClient.active && siteNI != null)
+                        {
+                            var workerNI = sel.GetComponent<NetworkIdentity>();
+                            PlayerNetworkController.LocalPlayer?.CmdAssignWorkerBuild(workerNI, siteNI);
+                        }
+                        else
+                        {
+                            worker.AssignToConstruction(site);
+                        }
+                    }
                     return;
                 }
 
                 var node = selHit.collider.GetComponentInParent<ResourceNode>();
                 if (node != null)
                 {
+                    var nodeNI = node.GetComponent<NetworkIdentity>();
                     foreach (var sel in _selected)
-                        sel.GetComponent<WorkerController>()?.AssignToHarvest(node);
+                    {
+                        var worker = sel.GetComponent<WorkerController>();
+                        if (worker == null) continue;
+                        if (NetworkClient.active && nodeNI != null)
+                        {
+                            var workerNI = sel.GetComponent<NetworkIdentity>();
+                            PlayerNetworkController.LocalPlayer?.CmdAssignWorkerHarvest(workerNI, nodeNI);
+                        }
+                        else
+                            worker.AssignToHarvest(node);
+                    }
                     return;
                 }
             }
 
             if (Physics.Raycast(ray, out RaycastHit groundHit, 1000f, _groundLayer))
             {
+                bool isAttackMove = _attackMoveQueued;
+
+                var movers = new List<Selectable>();
                 foreach (var sel in _selected)
+                    if (sel.GetComponent<WorkerController>() != null || sel.GetComponent<UnitBase>() != null)
+                        movers.Add(sel);
+
+                for (int i = 0; i < movers.Count; i++)
                 {
-                    var worker = sel.GetComponent<WorkerController>();
-                    if (worker != null) worker.OrderMove(groundHit.point);
-                    else sel.GetComponent<UnitBase>()?.MoveTo(groundHit.point);
+                    Vector3 dest   = groundHit.point + FormationOffset(i, movers.Count, 0.6f);
+                    var worker     = movers[i].GetComponent<WorkerController>();
+                    var combat     = movers[i].GetComponent<CombatUnit>();
+                    var ni         = movers[i].GetComponent<NetworkIdentity>();
+
+                    if (NetworkClient.active)
+                    {
+                        if (worker != null)
+                            PlayerNetworkController.LocalPlayer?.CmdOrderWorkerMove(ni, dest);
+                        else if (isAttackMove && combat != null)
+                            PlayerNetworkController.LocalPlayer?.CmdAttackMove(ni, dest);
+                        else
+                            PlayerNetworkController.LocalPlayer?.CmdMoveUnit(ni, dest);
+                    }
+                    else
+                    {
+                        if (worker != null)              worker.OrderMove(dest);
+                        else if (isAttackMove && combat != null) combat.OrderAttackMove(dest);
+                        else                             movers[i].GetComponent<UnitBase>()?.MoveTo(dest);
+                    }
                 }
             }
         }
 
-        // ── Utilitaires ──────────────────────────────────────────────────────
+        private static Vector3 FormationOffset(int index, int total, float spacing)
+        {
+            if (index == 0) return Vector3.zero;
+            int ring    = 1;
+            int counted = 1;
+            while (counted + ring * 6 <= index)
+            {
+                counted += ring * 6;
+                ring++;
+            }
+            int posInRing = index - counted;
+            float angle   = posInRing * (360f / (ring * 6)) * Mathf.Deg2Rad;
+            float r       = ring * spacing;
+            return new Vector3(Mathf.Cos(angle) * r, 0f, Mathf.Sin(angle) * r);
+        }
 
         private static Rect ScreenRect(Vector2 a, Vector2 b) =>
             new(Mathf.Min(a.x, b.x), Mathf.Min(a.y, b.y),
                 Mathf.Abs(a.x - b.x), Mathf.Abs(a.y - b.y));
 
-        // ── Drag-box visual ──────────────────────────────────────────────────
         private Texture2D _boxFill;
         private Texture2D _boxBorder;
 
@@ -218,7 +302,6 @@ namespace Pantheum.Selection
             float h = Mathf.Abs(startY         - currentY);
 
             Rect rect = new(x, y, w, h);
-
             GUI.DrawTexture(rect, _boxFill);
 
             float b = 1f;

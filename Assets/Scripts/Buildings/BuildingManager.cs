@@ -1,22 +1,13 @@
 using System.Collections.Generic;
 using UnityEngine;
 using Pantheum.Core;
+using Pantheum.Network;
 
 namespace Pantheum.Buildings
 {
-    /// <summary>
-    /// Singleton that tracks all placed buildings and enforces per-type limits
-    /// that scale with the total castle weight (T1=1, T2=2, T3=3).
-    /// </summary>
     [DefaultExecutionOrder(-100)]
     public class BuildingManager : MonoBehaviour
     {
-        /// <summary>
-        /// Per-building-type limit table configurable in the Inspector.
-        /// Each castle contributes limitPerCastleTier[its tier - 1] to the total limit.
-        /// Total limit = sum of all castles' individual contributions.
-        /// Example: GoldMine [2, 3, 4] + 1xT3 castle + 1xT2 castle = 4+3 = 7.
-        /// </summary>
         [System.Serializable]
         public struct BuildingLimitEntry
         {
@@ -42,12 +33,8 @@ namespace Pantheum.Buildings
 
         private Dictionary<BuildingType, BuildingLimitEntry> _limits;
 
-        private readonly Dictionary<BuildingType, int> _counts = new();
-
-        // Index 0 = T1 castles, 1 = T2, 2 = T3
         private readonly List<Castle>[] _castlesByTier = { new(), new(), new() };
 
-        // Which Castle tier must exist before this building type can be placed.
         private static readonly Dictionary<BuildingType, int> RequiredTier = new()
         {
             { BuildingType.Castle,        1 },
@@ -70,37 +57,89 @@ namespace Pantheum.Buildings
                 _limits[entry.type] = entry;
         }
 
+        private static Faction GetLocalFaction() =>
+            PlayerNetworkController.LocalPlayer?.Faction ?? Faction.Player;
+
         public void Register(BuildingBase b)
         {
-            _counts.TryGetValue(b.BuildingType, out int c);
-            _counts[b.BuildingType] = c + 1;
-
-            if (b is Castle castle && castle.Faction == Faction.Player)
+            if (b is Castle castle && castle.Faction == GetLocalFaction())
                 _castlesByTier[(int)castle.Tier - 1].Add(castle);
         }
 
-        /// <summary>
-        /// Moves a Castle from its old tier list to its new tier list after an upgrade.
-        /// </summary>
+        public void RebuildCastleTierLists()
+        {
+            foreach (var list in _castlesByTier) list.Clear();
+            Faction localFaction = GetLocalFaction();
+            foreach (var castle in Object.FindObjectsByType<Castle>(FindObjectsSortMode.None))
+                if (castle.Faction == localFaction)
+                    _castlesByTier[(int)castle.Tier - 1].Add(castle);
+        }
+
         public void UpdateCastleTier(Castle castle, CastleTier oldTier)
         {
+            if (castle.Faction != GetLocalFaction()) return;
             _castlesByTier[(int)oldTier - 1].Remove(castle);
             _castlesByTier[(int)castle.Tier - 1].Add(castle);
         }
 
+        public int GetCastleCount(int tier, Faction faction)
+        {
+            int count = 0;
+            foreach (var castle in Object.FindObjectsByType<Castle>(FindObjectsSortMode.None))
+            {
+                if (castle.Faction != faction) continue;
+                if ((int)castle.Tier >= tier)
+                    count++;
+            }
+            return count;
+        }
+
+        public int GetCount(BuildingType type, Faction faction)
+        {
+            int count = 0;
+            foreach (var bb in Object.FindObjectsByType<BuildingBase>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (bb.IsRegistered && bb.BuildingType == type && bb.Faction == faction)
+                    count++;
+            return count;
+        }
+
+        public int GetLimit(BuildingType type, Faction faction)
+        {
+            if (type == BuildingType.Castle) return int.MaxValue;
+            if (_limits == null || !_limits.TryGetValue(type, out var entry))
+                return int.MaxValue;
+
+            int t1 = 0, t2 = 0, t3 = 0;
+            foreach (var castle in Object.FindObjectsByType<Castle>(FindObjectsSortMode.None))
+            {
+                if (castle.Faction != faction) continue;
+                switch (castle.Tier)
+                {
+                    case CastleTier.T1: t1++; break;
+                    case CastleTier.T2: t2++; break;
+                    case CastleTier.T3: t3++; break;
+                }
+            }
+
+            return t1 * entry.t1 + t2 * entry.t2 + t3 * entry.t3;
+        }
+
+        public bool CanPlace(BuildingType type, Faction faction)
+        {
+            return GetCount(type, faction) < GetLimit(type, faction);
+        }
+
+        public bool TierRequirementMet(BuildingType type, Faction faction)
+        {
+            return GetCastleCount(RequiredTier[type], faction) > 0;
+        }
+
         public void Unregister(BuildingBase b)
         {
-            if (_counts.TryGetValue(b.BuildingType, out int c))
-                _counts[b.BuildingType] = Mathf.Max(0, c - 1);
-
-            if (b is Castle castle && castle.Faction == Faction.Player)
+            if (b is Castle castle && castle.Faction == GetLocalFaction())
                 _castlesByTier[(int)castle.Tier - 1].Remove(castle);
         }
 
-        /// <summary>
-        /// Returns the count of Castles at <paramref name="tier"/> or higher.
-        /// A T2 Castle therefore also satisfies a T1 requirement.
-        /// </summary>
         public int GetCastleCount(int tier)
         {
             int count = 0;
@@ -109,39 +148,38 @@ namespace Pantheum.Buildings
             return count;
         }
 
-/// <summary>
-        /// Returns how many of <paramref name="type"/> can be placed.
-        /// Looks up the limit table configured in the Inspector using the current castle weight.
-        /// Castles themselves are always unlimited.
-        /// </summary>
         public int GetLimit(BuildingType type)
         {
             if (type == BuildingType.Castle) return int.MaxValue;
             if (_limits == null || !_limits.TryGetValue(type, out var entry))
                 return int.MaxValue;
 
-            // Each castle contributes based on its own tier.
             return _castlesByTier[0].Count * entry.t1
                  + _castlesByTier[1].Count * entry.t2
                  + _castlesByTier[2].Count * entry.t3;
         }
 
+        public int GetCount(BuildingType type)
+        {
+            Faction local = GetLocalFaction();
+            int count = 0;
+            foreach (var bb in Object.FindObjectsByType<BuildingBase>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (bb.IsRegistered && bb.BuildingType == type && bb.Faction == local)
+                    count++;
+            return count;
+        }
+
         public bool CanPlace(BuildingType type)
         {
-            _counts.TryGetValue(type, out int c);
-            return c < GetLimit(type);
+            return GetCount(type) < GetLimit(type);
         }
 
         public bool TierRequirementMet(BuildingType type) =>
             GetCastleCount(RequiredTier[type]) > 0;
 
-        /// <summary>
-        /// Adds a completed building's castle to tier tracking (if applicable).
-        /// Called by CompleteConstruction() for buildings placed via StartConstruction().
-        /// </summary>
         public void RegisterCastleTier(BuildingBase b)
         {
-            if (b is Castle castle && castle.Faction == Faction.Player)
+            if (b is Castle castle && castle.Faction == GetLocalFaction())
             {
                 var list = _castlesByTier[(int)castle.Tier - 1];
                 if (!list.Contains(castle))
@@ -149,21 +187,10 @@ namespace Pantheum.Buildings
             }
         }
 
-        /// <summary>
-        /// Removes a castle from all tier tracking lists.
-        /// Call after changing a castle's faction to non-Player.
-        /// </summary>
         public void RemoveCastleFromTierLists(Castle castle)
         {
             foreach (var list in _castlesByTier)
                 list.Remove(castle);
-        }
-
-        /// <summary>Returns the number of currently placed buildings of <paramref name="type"/>.</summary>
-        public int GetCount(BuildingType type)
-        {
-            _counts.TryGetValue(type, out int c);
-            return c;
         }
     }
 }

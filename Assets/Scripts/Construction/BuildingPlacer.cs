@@ -1,21 +1,14 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Mirror;
 using Pantheum.Buildings;
 using Pantheum.Core;
+using Pantheum.Network;
 using Pantheum.Selection;
 using Pantheum.Units;
 
 namespace Pantheum.Construction
 {
-    // Manages ghost-preview grid placement and spawns a ConstructionSite on confirm.
-    //
-    // Setup in Inspector:
-    //   _ghostMaterial : ONE transparent material (URP Lit, Surface = Transparent)
-    //   _groundLayer   : "Ground" layer mask
-    //
-    // NO construction site prefab needed — the site is built at runtime from the building prefab.
-    // ExecutionOrder > 0 ensures SelectionManager (order 0) runs first, so its !IsActive check
-    // still sees IsActive=true when the player right-clicks to cancel placement.
     [DefaultExecutionOrder(10)]
     public class BuildingPlacer : MonoBehaviour
     {
@@ -50,28 +43,32 @@ namespace Pantheum.Construction
         }
 
         public void BeginPlacement(BuildingType type,
-                                   GameObject buildingPrefab, int goldCost = 0,
-                                   WorkerController[] workers = null)
+                           GameObject buildingPrefab, int goldCost = 0,
+                           WorkerController[] workers = null)
         {
             if (buildingPrefab == null)
             {
                 Debug.LogError($"[BuildingPlacer] buildingPrefab null pour {type}.");
                 return;
             }
-            if (!BuildingManager.Instance.TierRequirementMet(type))
+
+            if (!NetworkClient.active || NetworkServer.active)
             {
-                Debug.Log($"[BuildingPlacer] {type}: tier requis non atteint.");
-                return;
-            }
-            if (!BuildingManager.Instance.CanPlace(type))
-            {
-                Debug.Log($"[BuildingPlacer] {type}: limite atteinte.");
-                return;
+                if (!BuildingManager.Instance.TierRequirementMet(type))
+                {
+                    Debug.Log($"[BuildingPlacer] {type}: tier requis non atteint.");
+                    return;
+                }
+                if (!BuildingManager.Instance.CanPlace(type))
+                {
+                    Debug.Log($"[BuildingPlacer] {type}: limite atteinte.");
+                    return;
+                }
             }
 
             CancelPlacement();
 
-            var bb = buildingPrefab.GetComponent<Pantheum.Buildings.BuildingBase>();
+            var bb = buildingPrefab.GetComponent<BuildingBase>();
             _pendingType           = type;
             _pendingGridSize       = bb != null ? bb.GridSize : new Vector2Int(2, 2);
             _pendingBuildingPrefab = buildingPrefab;
@@ -129,7 +126,7 @@ namespace Pantheum.Construction
                 grid.SetPlacementPreview(checkPos, _pendingGridSize, valid);
 
             if (mouse.leftButton.wasPressedThisFrame && valid)
-                TryPlace(checkPos);
+                TryPlace(ghostPos);
         }
 
         private bool IsValidPlacement(Vector3 position)
@@ -155,34 +152,74 @@ namespace Pantheum.Construction
                 Debug.Log($"[BuildingPlacer] {_pendingType}: conditions changées depuis le preview.");
                 return;
             }
-            if (_pendingGoldCost > 0 && !ResourceManager.Instance.SpendGold(_pendingGoldCost))
+            if (NetworkClient.active && !NetworkServer.active)
             {
-                Debug.Log("[BuildingPlacer] Or insuffisant.");
+                var nc = PlayerNetworkController.LocalPlayer;
+                if (_pendingGoldCost > 0 && (nc == null || nc.Gold < _pendingGoldCost))
+                {
+                    Debug.Log("[BuildingPlacer] Or insuffisant.");
+                    return;
+                }
+
+                NetworkIdentity workerNI = null;
+                if (_pendingWorkers != null && _pendingWorkers.Length > 0 && _pendingWorkers[0] != null)
+                    workerNI = _pendingWorkers[0].GetComponent<NetworkIdentity>();
+
+                nc?.CmdPlaceBuilding((int)_pendingType, position, _pendingGoldCost, workerNI);
+                CancelPlacement();
                 return;
             }
 
-            // Instantiate the building prefab directly as the construction host.
+            // Host or solo: spend gold now
+            if (NetworkServer.active)
+                ResourceManager.ActiveNetworkPlayer = PlayerNetworkController.LocalPlayer;
+            if (_pendingGoldCost > 0 && !ResourceManager.Instance.SpendGold(_pendingGoldCost))
+            {
+                ResourceManager.ActiveNetworkPlayer = null;
+                Debug.Log("[BuildingPlacer] Or insuffisant.");
+                return;
+            }
+            ResourceManager.ActiveNetworkPlayer = null;
+
             var siteGO = Instantiate(_pendingBuildingPrefab, position, Quaternion.identity);
 
-            // Keep the building count registered (limits apply immediately on placement)
-            // but release grid and remove castle from tier lists until construction completes.
-            foreach (var bb in siteGO.GetComponentsInChildren<BuildingBase>())
-                bb.StartConstruction();
+            foreach (var mb in siteGO.GetComponentsInChildren<MonoBehaviour>(true))
+            {
+                if (mb is ConstructionSite) continue;
+                if (mb is Mirror.NetworkBehaviour) continue;
+                if (mb is Selectable) continue;
 
-            // Hide original renderers — ConstructionSite spawns its own visuals.
-            foreach (var r in siteGO.GetComponentsInChildren<Renderer>())
-                r.enabled = false;
+                    mb.enabled = false;
+            }
 
-            // Disable all scripts, then re-enable Selectable so workers can be
-            // right-click assigned to this site.
-            foreach (var mb in siteGO.GetComponentsInChildren<MonoBehaviour>())
-                mb.enabled = false;
-            foreach (var sel in siteGO.GetComponentsInChildren<Selectable>())
-                sel.enabled = true;
-
-            // AddComponent triggers Awake immediately; Init() must be called before Start().
-            var site = siteGO.AddComponent<ConstructionSite>();
+            var site = siteGO.GetComponent<ConstructionSite>();
+            if (site == null)
+            {
+                Debug.LogError($"[BuildingPlacer] ConstructionSite manquant sur le prefab '{_pendingBuildingPrefab.name}'. Ajoute le composant (désactivé) sur chaque prefab de bâtiment.");
+                Destroy(siteGO);
+                return;
+            }
+            site.enabled = true;
             site.Init(_pendingBuildingPrefab, _ghostMaterial, goldCost: _pendingGoldCost);
+
+            if (NetworkServer.active)
+            {
+                Faction hostFaction = PlayerNetworkController.LocalPlayer?.Faction ?? Faction.Player;
+                var factionSync = siteGO.GetComponent<NetworkFactionSync>();
+                if (factionSync != null)
+                {
+                    factionSync.SetNetworkFaction(hostFaction);
+                    factionSync.SetUnderConstruction(true);
+                }
+                else
+                {
+                    foreach (var b in siteGO.GetComponentsInChildren<BuildingBase>())
+                        b.SetFaction(hostFaction);
+                }
+                NetworkServer.Spawn(siteGO, NetworkServer.localConnection);
+                var ni = siteGO.GetComponent<NetworkIdentity>();
+                if (ni != null) PlayerNetworkController.BroadcastFaction(ni, hostFaction);
+            }
 
             Debug.Log($"[BuildingPlacer] {_pendingType} placé en {position}.");
 
@@ -193,47 +230,63 @@ namespace Pantheum.Construction
             CancelPlacement();
         }
 
-        // Clones the building prefab and strips all logic, leaving only renderers.
         private GameObject CreateGhost(GameObject buildingPrefab)
         {
-            // Instantiate far away so BuildingBase.Awake() occupies/releases cells at an
-            // unused coordinate — never at the real placement position or any existing building.
+            bool wasActive = buildingPrefab.activeSelf;
+            buildingPrefab.SetActive(false);
+
             var ghost = Instantiate(buildingPrefab, new Vector3(99999f, 0f, 99999f), Quaternion.identity);
 
-            foreach (var bb in ghost.GetComponentsInChildren<BuildingBase>())
+            buildingPrefab.SetActive(wasActive);
+
+            foreach (var nb in ghost.GetComponentsInChildren<NetworkBehaviour>(true))
+                DestroyImmediate(nb);
+            foreach (var ni in ghost.GetComponentsInChildren<NetworkIdentity>(true))
+                DestroyImmediate(ni);
+
+            ghost.SetActive(true);
+
+            foreach (var bb in ghost.GetComponentsInChildren<BuildingBase>(true))
                 bb.CancelRegistration();
 
-            // Colliders off — ghost must not interact with units physically.
-            foreach (var col in ghost.GetComponentsInChildren<Collider>())
+            foreach (var col in ghost.GetComponentsInChildren<Collider>(true))
                 col.enabled = false;
 
-            // NavMeshObstacle must be destroyed (not just disabled) — even a disabled
-            // obstacle can still carve the NavMesh in some Unity versions, which causes
-            // units to path around the ghost as if it were a real building.
-            foreach (var obs in ghost.GetComponentsInChildren<UnityEngine.AI.NavMeshObstacle>())
-                Destroy(obs);
+            foreach (var obs in ghost.GetComponentsInChildren<UnityEngine.AI.NavMeshObstacle>(true))
+                DestroyImmediate(obs);
 
-            // Rigidbodies would cause physics interactions with units.
-            foreach (var rb in ghost.GetComponentsInChildren<Rigidbody>())
-                Destroy(rb);
+            foreach (var rb in ghost.GetComponentsInChildren<Rigidbody>(true))
+                DestroyImmediate(rb);
 
-            foreach (var mb in ghost.GetComponentsInChildren<MonoBehaviour>())
+            foreach (var mb in ghost.GetComponentsInChildren<MonoBehaviour>(true))
                 mb.enabled = false;
 
             var rend = ghost.GetComponentInChildren<Renderer>();
-            _ghostPivotToBottom = rend != null ? ghost.transform.position.y - rend.bounds.min.y : 0f;
+            if (rend != null)
+            {
+                var mf = rend.GetComponent<MeshFilter>();
+                if (mf != null && mf.sharedMesh != null)
+                {
+                    float belowPivot = -mf.sharedMesh.bounds.min.y * ghost.transform.localScale.y;
+                    _ghostPivotToBottom = Mathf.Max(0f, belowPivot);
+                }
+                else
+                {
+                    _ghostPivotToBottom = 0f;
+                }
+            }
+            else
+            {
+                _ghostPivotToBottom = 0f;
+            }
 
             if (_ghostMaterial == null)
             {
-                Debug.LogWarning("[BuildingPlacer] _ghostMaterial non assigné — fantôme non transparent.");
+                Debug.LogWarning("[BuildingPlacer] _ghostMaterial non assigné.");
                 return ghost;
             }
 
-            // Remplace TOUS les slots de chaque renderer par le ghost material.
-            // r.material ne touche que le slot 0 — un prefab avec plusieurs slots
-            // (ex: corps + fenêtres) laisserait les autres slots avec leurs matériaux
-            // d'origine (blancs), d'où l'apparence blanche du ghost.
-            foreach (var r in ghost.GetComponentsInChildren<Renderer>())
+            foreach (var r in ghost.GetComponentsInChildren<Renderer>(true))
             {
                 var slots = new Material[r.sharedMaterials.Length];
                 for (int i = 0; i < slots.Length; i++) slots[i] = _ghostMaterial;

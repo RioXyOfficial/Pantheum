@@ -9,12 +9,6 @@ namespace Pantheum.Selection
         void OnDeselected();
     }
 
-    /// <summary>
-    /// Attach to any GameObject that can be selected.
-    /// Fires OnSelectedEvent / OnDeselectedEvent so BuildingBase and UnitBase
-    /// can react without coupling to SelectionManager.
-    /// Maintains a static registry (All) so SelectionManager avoids FindObjectsByType.
-    /// </summary>
     public class Selectable : MonoBehaviour, ISelectable
     {
         private static readonly List<Selectable> _all = new();
@@ -30,7 +24,6 @@ namespace Pantheum.Selection
         private void OnDisable()
         {
             _all.Remove(this);
-            // Si cet objet est détruit pendant qu'il est sélectionné, on le retire proprement
             if (IsSelected)
                 SelectionManager.Instance?.RemoveFromSelection(this);
         }

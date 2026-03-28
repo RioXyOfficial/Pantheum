@@ -1,7 +1,9 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
+using Mirror;
 using Pantheum.Buildings;
+using Pantheum.Network;
 using Pantheum.Selection;
 using Pantheum.Core;
 using Pantheum.UI;
@@ -9,20 +11,17 @@ using Pantheum.Units;
 
 namespace Pantheum.Construction
 {
-    // Attach this to a minimal prefab (Collider + Selectable + TempWorldUI).
-    // One shared prefab for all building types.
-    // Call Init() immediately after Instantiate, before the first Update.
-    public class ConstructionSite : MonoBehaviour
+    public class ConstructionSite : NetworkBehaviour
     {
-        [Header("Defaults (fallback when Init() is not called)")]
+        [Header("Defaults")]
         [SerializeField] private GameObject _fallbackBuildingPrefab;
-        [SerializeField] private float      _maxHealth = 500f;
-        [SerializeField] private float      _buildRate = 50f;
-        [SerializeField] private Vector2Int _gridSize  = new(2, 2);
+        [SerializeField] private float _maxHealth = 500f;
+        [SerializeField] private float _buildRate = 50f;
+        [SerializeField] private Vector2Int _gridSize = new(2, 2);
 
-        [Header("Ghost outline material (same as BuildingPlacer._ghostMaterial)")]
+        [Header("Ghost")]
         [SerializeField] private Material _ghostMaterial;
-        [SerializeField] private Color    _ghostTint = new(0.4f, 0.7f, 1f, 0.5f);
+        [SerializeField] private Color _ghostTint = new(0.4f, 0.7f, 1f, 0.5f);
 
         [Header("UI")]
         [SerializeField] private MonoBehaviour _healthDisplayProvider;
@@ -30,49 +29,98 @@ namespace Pantheum.Construction
 
         private static readonly int s_baseColorId = Shader.PropertyToID("_BaseColor");
 
-        private GameObject _ghostVisual;      // full-size blue transparent outline — always visible
-        private GameObject _realVisual;       // real material, grows from bottom up
-        private float      _pivotToBottom;
-        private Renderer[] _originalRenderers; // siteGO renderers captured before SpawnVisuals
+        private GameObject _ghostVisual;
+        private GameObject _realVisual;
+        private float _pivotToBottom;
+        private Renderer[] _originalRenderers;
 
-        private GameObject  _buildingPrefab;
-        private float       _currentHealth;
-        private float       _buildProgress;
-        private bool        _initialized;
-        private bool        _constructionComplete;
-        private bool        _gridOccupied;
-        private int         _goldCost;
-        private IHealthDisplay   _healthDisplay;
+        private GameObject _buildingPrefab;
+
+        [SyncVar(hook = nameof(OnHealthChanged))]
+        private float _currentHealth;
+
+        [SyncVar(hook = nameof(OnBuildProgressChanged))]
+        private float _buildProgress;
+
+        [SyncVar(hook = nameof(OnConstructionCompleteChanged))]
+        private bool _constructionComplete;
+
+        [SyncVar]
+        private int _buildingTypeIndex = -1;
+
+        private bool _initialized;
+        private bool _gridOccupied;
+        private int _goldCost;
+        private IHealthDisplay _healthDisplay;
         private IProgressDisplay _progressDisplay;
+        private NetworkFactionSync _networkFactionSync;
 
         private readonly HashSet<WorkerController> _workers = new();
 
-        public bool      IsComplete    => _buildProgress >= 1f;
-        public float     BuildProgress => _buildProgress;
-        public Vector2Int GridSize     => _gridSize;
-        public int       GoldCost      => _goldCost;
+        public bool IsComplete => _buildProgress >= 1f;
+        public float BuildProgress => _buildProgress;
+        public Vector2Int GridSize => _gridSize;
+        public int GoldCost => _goldCost;
 
-        // Called by BuildingPlacer right after Instantiate, before Start().
+        private void OnHealthChanged(float oldValue, float newValue)
+        {
+            _healthDisplay?.UpdateHealth(newValue, _maxHealth);
+        }
+
+        private void OnBuildProgressChanged(float oldValue, float newValue)
+        {
+            _progressDisplay?.UpdateProgress(newValue);
+            UpdateRealVisual(newValue);
+        }
+
+        private void OnConstructionCompleteChanged(bool oldValue, bool newValue)
+        {
+            if (!newValue) return;
+
+            if (_ghostVisual != null) Destroy(_ghostVisual);
+            if (_realVisual != null) Destroy(_realVisual);
+
+            foreach (var r in _originalRenderers)
+            {
+                if (r == null) continue;
+                r.SetPropertyBlock(null);
+                r.enabled = true;
+            }
+
+            foreach (var mb in GetComponentsInChildren<MonoBehaviour>(true))
+            {
+                if (mb is ConstructionSite) continue;
+                if (mb is NetworkBehaviour) continue;
+                mb.enabled = true;
+            }
+
+            foreach (var bb in GetComponentsInChildren<BuildingBase>(true))
+                bb.CompleteConstruction();
+
+            Destroy(this);
+        }
+
         public void Init(GameObject buildingPrefab,
                          Material ghostMaterial = null,
                          float maxHealth = -1f, float buildRate = -1f,
-                         int goldCost = 0)
+                         int goldCost = 0, int typeIndex = -1)
         {
             _buildingPrefab = buildingPrefab;
+            _buildingTypeIndex = typeIndex;
+
             var bb = buildingPrefab != null ? buildingPrefab.GetComponent<BuildingBase>() : null;
             if (bb != null) _gridSize = bb.GridSize;
+
             if (ghostMaterial != null) _ghostMaterial = ghostMaterial;
             if (maxHealth > 0f) _maxHealth = maxHealth;
-            if (buildRate  > 0f) _buildRate  = buildRate;
+            if (buildRate > 0f) _buildRate = buildRate;
+
             _goldCost = goldCost;
 
             GridSystem.Instance?.Occupy(transform.position, _gridSize);
             _gridOccupied = true;
         }
 
-        /// <summary>
-        /// Cancels construction, refunds half the gold cost, and destroys the site.
-        /// </summary>
         public void CancelConstruction()
         {
             if (_constructionComplete) return;
@@ -82,7 +130,7 @@ namespace Pantheum.Construction
                 ResourceManager.Instance?.DepositGold(refund);
 
             foreach (var worker in _workers)
-                worker?.NotifyComplete(); // workers return to idle
+                worker?.NotifyComplete();
             _workers.Clear();
 
             Destroy(gameObject);
@@ -90,30 +138,45 @@ namespace Pantheum.Construction
 
         private void Awake()
         {
-            _healthDisplay   = _healthDisplayProvider   as IHealthDisplay;
+            _healthDisplay = _healthDisplayProvider as IHealthDisplay;
             _progressDisplay = _progressDisplayProvider as IProgressDisplay;
+        }
 
-            // Only pick components that are actually enabled — the host building prefab
-            // may have a disabled TempWorldUI that must not be used.
-            if (_healthDisplay == null || _progressDisplay == null)
-                foreach (var mb in GetComponents<MonoBehaviour>())
-                {
-                    if (!mb.enabled) continue;
-                    if (_healthDisplay   == null && mb is IHealthDisplay   hd) _healthDisplay   = hd;
-                    if (_progressDisplay == null && mb is IProgressDisplay pd) _progressDisplay = pd;
-                }
+        public override void OnStartClient()
+        {
+            base.OnStartClient();
 
-            // Still nothing found — add a fresh TempWorldUI.
-            if (_healthDisplay == null || _progressDisplay == null)
+            if (!isServer)
             {
-                var ui = gameObject.AddComponent<TempWorldUI>();
-                _healthDisplay   ??= ui;
-                _progressDisplay ??= ui;
+                var nfs = GetComponent<NetworkFactionSync>();
+                if (nfs == null || !nfs.IsUnderConstruction)
+                {
+                    Destroy(this);
+                    return;
+                }
             }
         }
 
         private void Start()
         {
+            _networkFactionSync = GetComponent<NetworkFactionSync>();
+            if (_networkFactionSync != null && !_networkFactionSync.IsUnderConstruction)
+            {
+                Destroy(this);
+                return;
+            }
+
+            var tempUI = GetComponent<TempWorldUI>();
+            if (tempUI == null)
+                tempUI = gameObject.AddComponent<TempWorldUI>();
+
+            tempUI.enabled = true;
+            _healthDisplay = tempUI;
+            _progressDisplay = tempUI;
+
+            if (NetworkClient.active && !NetworkServer.active && _buildingPrefab == null && _buildingTypeIndex >= 0)
+                _buildingPrefab = PlayerNetworkController.LocalPlayer?.GetBuildingPrefab(_buildingTypeIndex);
+
             if (_buildingPrefab == null)
             {
                 _buildingPrefab = _fallbackBuildingPrefab;
@@ -126,49 +189,69 @@ namespace Pantheum.Construction
 
             if (_buildingPrefab == null)
             {
-                Debug.LogError("[ConstructionSite] Aucun buildingPrefab. Appelle Init() ou assigne _fallbackBuildingPrefab.");
+                Debug.LogError("[ConstructionSite] No buildingPrefab. Call Init() or assign _fallbackBuildingPrefab.");
                 return;
             }
 
-            // Capture les renderers AVANT SpawnVisuals — après, GetComponentsInChildren
-            // retournerait aussi les renderers de _ghostVisual et _realVisual.
             _originalRenderers = GetComponentsInChildren<Renderer>(true);
+            foreach (var r in _originalRenderers)
+                r.enabled = false;
 
             SpawnVisuals();
-            // Safety re-occupy: SpawnVisuals() instantiates clones that each run Awake+CancelRegistration.
-            // In rare cases (prefab stored at same X/Z as placement) those Release calls could remove our cells.
-            GridSystem.Instance?.Occupy(transform.position, _gridSize);
-            SnapToGround();
 
-            var obstacle = GetComponent<NavMeshObstacle>() ?? gameObject.AddComponent<NavMeshObstacle>();
-            obstacle.carving = true;
-            obstacle.shape   = NavMeshObstacleShape.Box;
-            obstacle.size    = Vector3.one;
-            obstacle.center  = Vector3.zero;
-            _currentHealth = 0f;
-            _buildProgress = 0f;
+            bool isServerSide = NetworkServer.active || !NetworkClient.active;
+            if (isServerSide)
+            {
+                if (!_gridOccupied)
+                {
+                    GridSystem.Instance?.Occupy(transform.position, _gridSize);
+                    _gridOccupied = true;
+                }
+
+                SnapToGround();
+                RpcSyncPosition(transform.position);
+
+                var obstacle = GetComponent<NavMeshObstacle>() ?? gameObject.AddComponent<NavMeshObstacle>();
+                obstacle.carving = true;
+                obstacle.shape = NavMeshObstacleShape.Box;
+                obstacle.size = Vector3.one;
+                obstacle.center = Vector3.zero;
+
+                _currentHealth = 0f;
+                _buildProgress = 0f;
+            }
+
             _healthDisplay?.UpdateHealth(0f, _maxHealth);
             _progressDisplay?.UpdateProgress(0f);
             UpdateRealVisual(0f);
             _initialized = true;
+        }
 
-            Debug.Log($"[ConstructionSite] Chantier démarré → {_buildingPrefab.name} en {transform.position}.");
+        [ClientRpc]
+        private void RpcSyncPosition(Vector3 pos)
+        {
+            if (!isServer) transform.position = pos;
         }
 
         private void OnDestroy()
         {
             if (!_constructionComplete && _gridOccupied)
-            {
                 GridSystem.Instance?.Release(transform.position, _gridSize);
-                Debug.Log("[ConstructionSite] Détruit avant complétion — cellules libérées.");
-            }
         }
 
         public void AssignWorker(WorkerController worker) => _workers.Add(worker);
         public void RemoveWorker(WorkerController worker) => _workers.Remove(worker);
 
+        public bool IsPrimaryBuilder(WorkerController worker)
+        {
+            foreach (var w in _workers)
+                return w == worker;
+            return false;
+        }
+
         public void Tick(float deltaTime)
         {
+            if (NetworkClient.active && !NetworkServer.active) return;
             if (!_initialized || IsComplete) return;
 
             _currentHealth = Mathf.Min(_maxHealth, _currentHealth + _buildRate * deltaTime);
@@ -178,17 +261,17 @@ namespace Pantheum.Construction
             _progressDisplay?.UpdateProgress(_buildProgress);
             UpdateRealVisual(_buildProgress);
 
-            if (IsComplete) Complete();
+            if (IsComplete)
+                Complete();
         }
 
         private void SpawnVisuals()
         {
-            // ── Ghost outline — full size, blue transparent, always visible ──────
             _ghostVisual = ClonePrefab(_buildingPrefab);
-            _ghostVisual.transform.SetParent(transform, worldPositionStays: true);
+            _ghostVisual.transform.SetParent(transform, true);
             _ghostVisual.transform.localPosition = Vector3.zero;
             _ghostVisual.transform.localRotation = Quaternion.identity;
-            _ghostVisual.transform.localScale     = Vector3.one * 0.999f; // évite le z-fighting avec le real visual
+            _ghostVisual.transform.localScale = Vector3.one * 0.999f;
 
             if (_ghostMaterial != null)
                 foreach (var r in _ghostVisual.GetComponentsInChildren<Renderer>())
@@ -199,53 +282,61 @@ namespace Pantheum.Construction
             foreach (var r in _ghostVisual.GetComponentsInChildren<Renderer>())
                 r.SetPropertyBlock(ghostBlock);
 
-            // ── Real visual — starts invisible, grows from bottom up ─────────────
             _realVisual = ClonePrefab(_buildingPrefab);
-            _realVisual.transform.SetParent(transform, worldPositionStays: true);
+            _realVisual.transform.SetParent(transform, true);
             _realVisual.transform.localPosition = Vector3.zero;
             _realVisual.transform.localRotation = Quaternion.identity;
 
-            // Measure pivot-to-bottom on the real visual for the grow formula.
-            var rend = _realVisual.GetComponentInChildren<Renderer>();
-            _pivotToBottom = rend != null ? transform.position.y - rend.bounds.min.y : 0f;
+            var renderers = _realVisual.GetComponentsInChildren<Renderer>();
+            if (renderers.Length > 0)
+            {
+                float minY = float.MaxValue;
+                foreach (var r in renderers)
+                    minY = Mathf.Min(minY, r.bounds.min.y);
+                _pivotToBottom = _realVisual.transform.position.y - minY;
+            }
         }
 
-        // Returns a clone of prefab with all logic stripped (Colliders off, MonoBehaviours off).
         private static GameObject ClonePrefab(GameObject prefab)
         {
-            // Instantiate far away so BuildingBase.Awake() occupies/releases cells at an
-            // unused coordinate — never at the real placement position or any existing building.
+            bool wasActive = prefab.activeSelf;
+            prefab.SetActive(false);
             var go = Instantiate(prefab, new Vector3(99999f, 0f, 99999f), Quaternion.identity);
-            foreach (var bb in go.GetComponentsInChildren<BuildingBase>())
-                bb.CancelRegistration();
-            foreach (var col in go.GetComponentsInChildren<Collider>())
+            prefab.SetActive(wasActive);
+
+            foreach (var mb in go.GetComponentsInChildren<MonoBehaviour>(true))
+                DestroyImmediate(mb);
+            foreach (var ni in go.GetComponentsInChildren<NetworkIdentity>(true))
+                DestroyImmediate(ni);
+            foreach (var col in go.GetComponentsInChildren<Collider>(true))
                 col.enabled = false;
-            // Destroy NavMeshObstacles added by BuildingBase.Awake() — even a disabled obstacle
-            // can carve the NavMesh in some Unity versions, blocking workers.
-            foreach (var obs in go.GetComponentsInChildren<UnityEngine.AI.NavMeshObstacle>())
-                UnityEngine.Object.Destroy(obs);
-            foreach (var mb in go.GetComponentsInChildren<MonoBehaviour>())
-                mb.enabled = false;
+            foreach (var rb in go.GetComponentsInChildren<Rigidbody>(true))
+                DestroyImmediate(rb);
+
+            go.SetActive(true);
             return go;
         }
 
-        // Snaps the site root so the building bottom sits on the ground.
         private void SnapToGround()
         {
-            if (!NavMesh.SamplePosition(transform.position, out NavMeshHit hit, 5f, NavMesh.AllAreas)) return;
-            transform.position = new Vector3(transform.position.x,
-                                             hit.position.y + _pivotToBottom,
-                                             transform.position.z);
+            var ownColliders = GetComponentsInChildren<Collider>();
+            foreach (var c in ownColliders) c.enabled = false;
+
+            Ray ray = new Ray(transform.position + Vector3.up * 100f, Vector3.down);
+            if (Physics.Raycast(ray, out RaycastHit hit, 500f))
+                transform.position = new Vector3(transform.position.x, hit.point.y + _pivotToBottom, transform.position.z);
+
+            foreach (var c in ownColliders) c.enabled = true;
         }
 
-        // Grows _realVisual from the ground up as t goes 0 → 1.
-        // The ghost outline stays full size the whole time.
         private void UpdateRealVisual(float t)
         {
             if (_realVisual == null) return;
-            float scale  = Mathf.Max(0.001f, t);
-            float localY = _pivotToBottom * (t - 1f); // keeps bottom flush with ground
-            _realVisual.transform.localScale    = new Vector3(1f, scale, 1f);
+
+            float scale = Mathf.Max(0.001f, t);
+            float localY = _pivotToBottom * (t - 1f);
+
+            _realVisual.transform.localScale = new Vector3(1f, scale, 1f);
             _realVisual.transform.localPosition = new Vector3(0f, localY, 0f);
         }
 
@@ -253,41 +344,16 @@ namespace Pantheum.Construction
         {
             _constructionComplete = true;
 
+            if (NetworkServer.active && _networkFactionSync != null)
+                _networkFactionSync.SetUnderConstruction(false);
+
+            if (!NetworkServer.active)
+                OnConstructionCompleteChanged(false, true);
+
             foreach (var worker in _workers)
                 worker?.NotifyComplete();
             _workers.Clear();
 
-            // ── Supprime les visuels de construction ──────────────────────
-            // DestroyImmediate évite que Destroy() différé fasse apparaître le ghost
-            // pendant encore un frame après la complétion.
-            if (_ghostVisual != null) DestroyImmediate(_ghostVisual);
-            if (_realVisual  != null) DestroyImmediate(_realVisual);
-
-            // ── Réactive UNIQUEMENT les renderers originaux du prefab ─────
-            // _originalRenderers a été capturé avant SpawnVisuals, donc il ne
-            // contient pas les renderers du ghost ni du realVisual.
-            foreach (var r in _originalRenderers)
-            {
-                if (r == null) continue;
-                r.SetPropertyBlock(null); // vide tout MPB résiduel
-                r.enabled = true;
-            }
-
-            // ── Réactive tous les scripts du bâtiment ─────────────────────
-            foreach (var mb in GetComponentsInChildren<MonoBehaviour>(true))
-            {
-                if (mb is ConstructionSite) continue; // on se détruit en dernier
-                mb.enabled = true;
-            }
-
-            // ── Ré-enregistre le bâtiment dans les managers ───────────────
-            foreach (var bb in GetComponentsInChildren<BuildingBase>(true))
-                bb.CompleteConstruction();
-
-            Debug.Log($"[ConstructionSite] Terminé → {gameObject.name} converti en bâtiment fini.");
-
-            // ── Détruit uniquement le composant ConstructionSite ──────────
-            // Le GameObject lui-même survit en tant que bâtiment fonctionnel.
             Destroy(this);
         }
     }

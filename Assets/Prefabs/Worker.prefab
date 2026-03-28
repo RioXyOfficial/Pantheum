@@ -16,6 +16,9 @@ GameObject:
   - component: {fileID: 5594487176590432703}
   - component: {fileID: 1095777281787736643}
   - component: {fileID: 33746215335456465}
+  - component: {fileID: 58334569004047203}
+  - component: {fileID: -8319153299317809808}
+  - component: {fileID: 6710122197017780828}
   m_Layer: 7
   m_Name: Worker
   m_TagString: Untagged
@@ -137,7 +140,7 @@ NavMeshAgent:
   m_AutoBraking: 1
   m_AutoRepath: 1
   m_Height: 1.9999999
-  m_BaseOffset: 0.99999994
+  m_BaseOffset: 0.999
   m_WalkableMask: 4294967295
   m_ObstacleAvoidanceType: 4
 --- !u!114 &5594487176590432703
@@ -164,8 +167,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f4f42baf1bd91134a9186c778765a1c6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Pantheum.Units.WorkerController
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
   _maxHealth: 100
-  _healthDisplayProvider: {fileID: 5594487176590432703}
+  _faction: 0
   _depositPause: 0.5
 --- !u!114 &33746215335456465
 MonoBehaviour:
@@ -179,3 +185,70 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 915b5d43e40b9cd4197cc06f2f22a8ad, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Pantheum.UI.TempWorldUI
+  _worldHeightOffset: 2
+--- !u!114 &58334569004047203
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 986276231747775917}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9b91ecbcc199f4492b9a91e820070131, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Mirror::Mirror.NetworkIdentity
+  sceneId: 0
+  _assetId: 4282596195
+  serverOnly: 0
+  visibility: 0
+  hasSpawned: 0
+--- !u!114 &-8319153299317809808
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 986276231747775917}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a553cb17010b2403e8523b558bffbc14, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Mirror.Components::Mirror.NetworkTransformUnreliable
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  target: {fileID: 3188912308414213043}
+  syncPosition: 1
+  syncRotation: 1
+  syncScale: 0
+  onlySyncOnChange: 1
+  compressRotation: 1
+  interpolatePosition: 1
+  interpolateRotation: 1
+  interpolateScale: 1
+  coordinateSpace: 0
+  timelineOffset: 1
+  showGizmos: 0
+  showOverlay: 0
+  overlayColor: {r: 0, g: 0, b: 0, a: 0.5}
+  bufferResetMultiplier: 3
+  useFixedUpdate: 0
+  positionSensitivity: 0.01
+  rotationSensitivity: 0.01
+  scaleSensitivity: 0.01
+--- !u!114 &6710122197017780828
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 986276231747775917}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f663ec499e1225640a47035e585f4e6e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Pantheum.Network.NetworkFactionSync
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0

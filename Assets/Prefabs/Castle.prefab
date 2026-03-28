@@ -15,6 +15,9 @@ GameObject:
   - component: {fileID: 7288683507328040163}
   - component: {fileID: 4496692392358229825}
   - component: {fileID: 6312237177666847344}
+  - component: {fileID: -2899730210820500828}
+  - component: {fileID: 3352112445145839174}
+  - component: {fileID: 6098176371531773943}
   m_Layer: 7
   m_Name: Castle
   m_TagString: Untagged
@@ -150,7 +153,6 @@ MonoBehaviour:
   _castleReqForTier3: 2
   _tierVisuals: []
   _workerPrefab: {fileID: 986276231747775917, guid: 2079da40459aea44e97c021950d87c2c, type: 3}
-  _spawnPoint: {fileID: 6141287879815442268}
   _workerGoldCost: 50
   _workerProductionTime: 10
   _maxWorkerQueueSize: 5
@@ -168,6 +170,61 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Pantheum.UI.TempWorldUI
   _worldHeightOffset: 2
+--- !u!114 &-2899730210820500828
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4059202506703176264}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9b91ecbcc199f4492b9a91e820070131, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Mirror::Mirror.NetworkIdentity
+  sceneId: 0
+  _assetId: 839957231
+  serverOnly: 0
+  visibility: 0
+  hasSpawned: 0
+--- !u!114 &3352112445145839174
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4059202506703176264}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f663ec499e1225640a47035e585f4e6e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Pantheum.Network.NetworkFactionSync
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+--- !u!114 &6098176371531773943
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4059202506703176264}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9236d868fef416a4887da03ae9feb3d8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Pantheum.Construction.ConstructionSite
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  _fallbackBuildingPrefab: {fileID: 4059202506703176264}
+  _maxHealth: 500
+  _buildRate: 50
+  _gridSize: {x: 4, y: 4}
+  _ghostMaterial: {fileID: 2100000, guid: 5440c04d3defafa49b6328e475894678, type: 2}
+  _ghostTint: {r: 0.4, g: 0.7, b: 1, a: 0.5}
+  _healthDisplayProvider: {fileID: 0}
+  _progressDisplayProvider: {fileID: 0}
 --- !u!1 &9049174995785915642
 GameObject:
   m_ObjectHideFlags: 0

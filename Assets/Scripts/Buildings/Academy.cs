@@ -3,9 +3,6 @@ using Pantheum.Units;
 
 namespace Pantheum.Buildings
 {
-    /// <summary>
-    /// Produces Mage (T1) and Valkyrie (T2) via UnitProduction component.
-    /// </summary>
     [RequireComponent(typeof(UnitProduction))]
     public class Academy : BuildingBase
     {
@@ -38,7 +35,6 @@ namespace Pantheum.Buildings
             });
         }
 
-        /// <summary>Requires Academy tier 2.</summary>
         public void TrainValkyrie()
         {
             if (_valkyriePrefab == null) return;

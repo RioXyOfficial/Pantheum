@@ -102,3 +102,9 @@ UpgradeLog.htm
 .vscode/
 CLAUDE.md
 .vsconfig
+.claude/
+Assets/Scripts/Units/test.cs
+Assets/Scripts/Units/test.cs.meta
+(1).gitignore
+Packages/manifest(1).json
+Packages/packages-lock(1).json

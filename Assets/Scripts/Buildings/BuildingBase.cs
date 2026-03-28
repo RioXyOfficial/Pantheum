@@ -3,6 +3,7 @@ using UnityEngine.AI;
 using Pantheum.Core;
 using Pantheum.Selection;
 using Pantheum.UI;
+using Pantheum.Network;
 
 
 namespace Pantheum.Buildings
@@ -60,18 +61,23 @@ namespace Pantheum.Buildings
         public int  MaxTier     => _maxTier;
         public int  UpgradeCost => _upgradeCost;
 
-        /// <summary>Castle tier required to reach the next tier (0 = no requirement).</summary>
         public int NextTierCastleReq => CurrentTier == 1 ? _castleReqForTier2 : _castleReqForTier3;
 
         public bool UpgradeCastleReqMet =>
             NextTierCastleReq == 0
-            || (BuildingManager.Instance?.GetCastleCount(NextTierCastleReq) ?? 0) > 0;
+            || (BuildingManager.Instance?.GetCastleCount(NextTierCastleReq, Faction) ?? 0) > 0;
 
-        public bool CanUpgrade =>
-            CurrentTier < _maxTier
-            && UpgradeCastleReqMet
-            && ResourceManager.Instance != null
-            && ResourceManager.Instance.Gold >= _upgradeCost;
+        public bool IsRegistered => _registeredInManagers;
+
+        public bool CanUpgrade
+        {
+            get
+            {
+                var localFaction = PlayerNetworkController.LocalPlayer?.Faction;
+                Debug.Log($"[CanUpgrade] {name} | MyFaction={Faction} | LocalFaction={localFaction} | Tier={CurrentTier} | MaxTier={_maxTier} | NextReq={NextTierCastleReq} | ReqMet={UpgradeCastleReqMet} | CastleCount={BuildingManager.Instance?.GetCastleCount(NextTierCastleReq)}");
+                return CurrentTier < _maxTier && UpgradeCastleReqMet;
+            }
+        }
         public Vector2Int   GridSize      => _gridSize;
         public Faction      Faction       => _faction;
 
@@ -116,12 +122,13 @@ namespace Pantheum.Buildings
             GridSystem.Instance?.Release(transform.position, _gridSize);
         }
 
-        /// <summary>
-        /// Called by BuildingPlacer when a construction site is placed.
-        /// Keeps the building count (so placement limits are respected immediately)
-        /// but releases the grid (ConstructionSite manages it) and removes castles
-        /// from tier lists (only completed castles count toward tier tracking).
-        /// </summary>
+        public void ApplyTierFromNetwork(int tier)
+        {
+            CurrentTier = tier;
+            ApplyTierVisual(tier);
+            OnTierUpgraded(tier);
+        }
+
         public virtual void StartConstruction()
         {
             if (_selectable != null)
@@ -132,15 +139,10 @@ namespace Pantheum.Buildings
             GridSystem.Instance?.Release(transform.position, _gridSize);
             if (_registeredInManagers && this is Castle)
                 BuildingManager.Instance?.RemoveCastleFromTierLists((Castle)this);
-            // _registeredInManagers stays true — count remains incremented.
         }
 
-        /// <summary>
-        /// Called by ConstructionSite.Complete() when construction finishes.
-        /// </summary>
         public virtual void CompleteConstruction()
         {
-            // Re-wire selection events.
             if (_selectable != null)
             {
                 _selectable.OnSelectedEvent   -= OnSelected;
@@ -149,20 +151,16 @@ namespace Pantheum.Buildings
                 _selectable.OnDeselectedEvent += OnDeselected;
             }
 
-            // Re-find health display — TempWorldUI may have been added after Awake.
             _healthDisplay = null;
             foreach (var mb in GetComponents<MonoBehaviour>())
                 if (mb is IHealthDisplay hd) { _healthDisplay = hd; break; }
 
             if (_registeredInManagers)
             {
-                // Placed via StartConstruction — count already correct.
-                // Just register Castle in tier lists now that it's complete.
                 BuildingManager.Instance?.RegisterCastleTier(this);
             }
             else if (BuildingManager.Instance != null)
             {
-                // Placed via CancelRegistration (legacy path) — register fresh.
                 BuildingManager.Instance.Register(this);
                 _registeredInManagers = true;
             }
@@ -170,8 +168,6 @@ namespace Pantheum.Buildings
             SetHealthFull();
         }
 
-        // Called when this building is used as a construction preview visual (ghost/clone).
-        // Undoes Awake() side effects so managers stay consistent.
         public virtual void CancelRegistration()
         {
             if (_selectable != null)
@@ -185,7 +181,6 @@ namespace Pantheum.Buildings
             _registeredInManagers = false;
         }
 
-        /// <summary>Spends gold and increments the building's tier. Calls OnTierUpgraded().</summary>
         public void Upgrade()
         {
             if (!CanUpgrade) return;
@@ -194,12 +189,13 @@ namespace Pantheum.Buildings
             ApplyTierVisual(CurrentTier);
             OnTierUpgraded(CurrentTier);
             Debug.Log($"[BuildingBase] {name} upgraded to tier {CurrentTier}.");
+
+            if (Mirror.NetworkServer.active)
+                GetComponent<NetworkFactionSync>()?.SetBuildingTier(CurrentTier);
         }
 
-        /// <summary>Called after a successful tier upgrade. Override to apply tier-specific effects.</summary>
         protected virtual void OnTierUpgraded(int newTier) { }
 
-        /// <summary>Swaps mesh and materials on the first MeshFilter/MeshRenderer found.</summary>
         private void ApplyTierVisual(int tier)
         {
             if (_tierVisuals == null || _tierVisuals.Length == 0) return;
@@ -234,7 +230,10 @@ namespace Pantheum.Buildings
         protected virtual void OnDeath()
         {
             Debug.Log($"[BuildingBase] {name} détruit.");
-            Destroy(gameObject);
+            if (Mirror.NetworkServer.active)
+                Mirror.NetworkServer.Destroy(gameObject);
+            else
+                Destroy(gameObject);
         }
 
         public virtual void OnSelected()

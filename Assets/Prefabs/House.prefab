@@ -15,6 +15,9 @@ GameObject:
   - component: {fileID: 4947697187007469879}
   - component: {fileID: 7739790126785561205}
   - component: {fileID: 5137641716521697757}
+  - component: {fileID: 6345553491723150297}
+  - component: {fileID: -7119649676273942294}
+  - component: {fileID: -6741446232350623802}
   m_Layer: 7
   m_Name: House
   m_TagString: Untagged
@@ -70,7 +73,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
+  - {fileID: 2100000, guid: 97cd1da5e22abdb4ebcacfd8eb5eeae6, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -162,3 +165,58 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Pantheum.UI.TempWorldUI
   _worldHeightOffset: 2
+--- !u!114 &6345553491723150297
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7565821774180509967}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9b91ecbcc199f4492b9a91e820070131, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Mirror::Mirror.NetworkIdentity
+  sceneId: 0
+  _assetId: 1046663831
+  serverOnly: 0
+  visibility: 0
+  hasSpawned: 0
+--- !u!114 &-7119649676273942294
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7565821774180509967}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f663ec499e1225640a47035e585f4e6e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Pantheum.Network.NetworkFactionSync
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+--- !u!114 &-6741446232350623802
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7565821774180509967}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9236d868fef416a4887da03ae9feb3d8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Pantheum.Construction.ConstructionSite
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  _fallbackBuildingPrefab: {fileID: 7565821774180509967}
+  _maxHealth: 500
+  _buildRate: 50
+  _gridSize: {x: 2, y: 2}
+  _ghostMaterial: {fileID: 2100000, guid: 5440c04d3defafa49b6328e475894678, type: 2}
+  _ghostTint: {r: 0.4, g: 0.7, b: 1, a: 0.5}
+  _healthDisplayProvider: {fileID: 0}
+  _progressDisplayProvider: {fileID: 0}

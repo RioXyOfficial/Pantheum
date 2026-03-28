@@ -3,9 +3,6 @@ using Pantheum.Units;
 
 namespace Pantheum.Buildings
 {
-    /// <summary>
-    /// Produces Knight (T1) and Archer (T2) via UnitProduction component.
-    /// </summary>
     [RequireComponent(typeof(UnitProduction))]
     public class Barracks : BuildingBase
     {
@@ -38,7 +35,6 @@ namespace Pantheum.Buildings
             });
         }
 
-        /// <summary>Requires Barracks tier 2.</summary>
         public void TrainArcher()
         {
             if (_archerPrefab == null) return;

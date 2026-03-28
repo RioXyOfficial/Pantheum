@@ -1,22 +1,15 @@
 using System.Collections.Generic;
 using UnityEngine;
+using Mirror;
 using Pantheum.Buildings;
 using Pantheum.Construction;
 using Pantheum.Core;
+using Pantheum.Network;
 using Pantheum.Selection;
 using Pantheum.Units;
 
 namespace Pantheum.UI
 {
-    /// <summary>
-    /// HUD principal du joueur.
-    ///
-    ///   • Barre de ressources (haut droite) — toujours visible.
-    ///   • Panneau de sélection (bas) — visible quand quelque chose est sélectionné.
-    ///     - Sélection unique  : nom, HP, état (worker), boutons de production.
-    ///     - Multi-sélection   : résumé par type d'unité.
-    ///     - Si workers présents (single ou multi) : boutons Construire en bas du panneau.
-    /// </summary>
     public class SelectionPanel : MonoBehaviour
     {
         [SerializeField] private float _panelHeight = 200f;
@@ -26,11 +19,10 @@ namespace Pantheum.UI
 
         private void Start() => _selectionManager = SelectionManager.Instance;
 
-        /// <summary>
-        /// True when the mouse is over an active UI panel this frame.
-        /// Read by SelectionManager to avoid click-through.
-        /// </summary>
         public static bool IsPointerOverUI { get; private set; }
+
+        private static bool Net => NetworkClient.active;
+        private static PlayerNetworkController NC => PlayerNetworkController.LocalPlayer;
 
         private void OnGUI()
         {
@@ -39,7 +31,6 @@ namespace Pantheum.UI
             if (_selectionManager == null) { IsPointerOverUI = false; return; }
             var selected = _selectionManager.Selected;
 
-            // Update block flag using IMGUI mouse coords (top-left origin).
             if (selected.Count > 0)
             {
                 var panelRect = new Rect(0, Screen.height - _panelHeight, Screen.width, _panelHeight);
@@ -54,23 +45,21 @@ namespace Pantheum.UI
             DrawSelectionPanel(selected);
         }
 
-        // ── Barre de ressources (haut droite) ─────────────────────────────
         private void DrawResourceBar()
         {
             const float w = 340f, h = 28f;
             float x = Screen.width - w - 10f;
             GUI.Box(new Rect(x, 10, w, h), GUIContent.none);
 
-            string txt = "  ";
-            if (ResourceManager.Instance != null)
-                txt += $"Or : {ResourceManager.Instance.Gold}    Mana : {ResourceManager.Instance.Mana}";
+            int gold = Net && NC != null ? NC.Gold : (ResourceManager.Instance?.Gold ?? 0);
+            int mana = Net && NC != null ? NC.Mana : (ResourceManager.Instance?.Mana ?? 0);
+            string txt = $"  Or : {gold}    Mana : {mana}";
             if (SupplyManager.Instance != null)
                 txt += $"    Supply : {SupplyManager.Instance.UsedSupply}/{SupplyManager.Instance.TotalSupply}";
 
             GUI.Label(new Rect(x + 4f, 16f, w - 8f, 20f), txt);
         }
 
-        // ── Panneau de sélection (bas) ────────────────────────────────────
         private void DrawSelectionPanel(IReadOnlyList<Selectable> selected)
         {
             Rect panelRect = new(0, Screen.height - _panelHeight, Screen.width, _panelHeight);
@@ -82,7 +71,6 @@ namespace Pantheum.UI
             else
                 DrawMultiSelectionSummary(selected);
 
-            // Boutons Construire — seulement quand UN seul worker est sélectionné
             if (_buildingMenu != null && selected.Count == 1)
             {
                 var w = selected[0].GetComponent<WorkerController>();
@@ -93,20 +81,20 @@ namespace Pantheum.UI
             GUILayout.EndArea();
         }
 
-        // ── Sélection unique ──────────────────────────────────────────────
         private void DrawSingleSelection(GameObject go)
         {
             GUILayout.Label(go.name);
 
-            // Si c'est un chantier, afficher la progression — pas la santé du BuildingBase
-            // qui est toujours à max car Awake() l'initialise avant toute construction.
             var site = go.GetComponent<ConstructionSite>();
             if (site != null)
             {
                 GUILayout.Label($"En construction : {site.BuildProgress * 100f:0}%");
                 int refund = site.GoldCost / 2;
                 if (GUILayout.Button($"Annuler (remboursement : {refund}g)"))
-                    site.CancelConstruction();
+                {
+                    if (Net) NC?.CmdCancelConstruction(go.GetComponent<NetworkIdentity>());
+                    else site.CancelConstruction();
+                }
                 return;
             }
 
@@ -126,9 +114,9 @@ namespace Pantheum.UI
             if (worker != null)
                 GUILayout.Label($"État : {worker.State}");
 
-            var castle    = go.GetComponent<Castle>();
-            var barracks  = go.GetComponent<Barracks>();
-            var academy   = go.GetComponent<Academy>();
+            var castle     = go.GetComponent<Castle>();
+            var barracks   = go.GetComponent<Barracks>();
+            var academy    = go.GetComponent<Academy>();
             var blacksmith = go.GetComponent<Blacksmith>();
 
             if (castle != null || barracks != null || academy != null || blacksmith != null)
@@ -136,72 +124,124 @@ namespace Pantheum.UI
                 GUILayout.BeginHorizontal();
 
                 if (castle != null && GUILayout.Button($"Spawn Worker ({castle.WorkerGoldCost}g)"))
-                    castle.SpawnWorker();
+                {
+                    if (Net) NC?.CmdSpawnWorker(go.GetComponent<NetworkIdentity>());
+                    else castle.SpawnWorker();
+                }
 
                 if (barracks != null)
                 {
-                    if (GUILayout.Button($"Knight ({barracks.KnightGoldCost}g)")) barracks.TrainKnight();
+                    if (GUILayout.Button($"Knight ({barracks.KnightGoldCost}g)"))
+                    {
+                        if (Net) NC?.CmdTrainKnight(go.GetComponent<NetworkIdentity>());
+                        else barracks.TrainKnight();
+                    }
                     bool wasEnabled = GUI.enabled;
                     GUI.enabled = barracks.CurrentTier >= 2;
-                    if (GUILayout.Button($"Archer ({barracks.ArcherGoldCost}g){(barracks.CurrentTier < 2 ? " [T2]" : "")}")) barracks.TrainArcher();
+                    if (GUILayout.Button($"Archer ({barracks.ArcherGoldCost}g){(barracks.CurrentTier < 2 ? " [T2]" : "")}"))
+                    {
+                        if (Net) NC?.CmdTrainArcher(go.GetComponent<NetworkIdentity>());
+                        else barracks.TrainArcher();
+                    }
                     GUI.enabled = wasEnabled;
                 }
 
                 if (academy != null)
                 {
-                    if (GUILayout.Button($"Mage ({academy.MageGoldCost}g)")) academy.TrainMage();
+                    if (GUILayout.Button($"Mage ({academy.MageGoldCost}g)"))
+                    {
+                        if (Net) NC?.CmdTrainMage(go.GetComponent<NetworkIdentity>());
+                        else academy.TrainMage();
+                    }
                     bool wasEnabled = GUI.enabled;
                     GUI.enabled = academy.CurrentTier >= 2;
-                    if (GUILayout.Button($"Valkyrie ({academy.ValkyrieGoldCost}g){(academy.CurrentTier < 2 ? " [T2]" : "")}")) academy.TrainValkyrie();
+                    if (GUILayout.Button($"Valkyrie ({academy.ValkyrieGoldCost}g){(academy.CurrentTier < 2 ? " [T2]" : "")}"))
+                    {
+                        if (Net) NC?.CmdTrainValkyrie(go.GetComponent<NetworkIdentity>());
+                        else academy.TrainValkyrie();
+                    }
                     GUI.enabled = wasEnabled;
                 }
 
                 if (blacksmith != null)
                 {
-                    if (GUILayout.Button("Upgrade ATK")) blacksmith.UpgradeAttack();
-                    if (GUILayout.Button("Upgrade ARM")) blacksmith.UpgradeArmor();
+                    if (GUILayout.Button("Upgrade ATK"))
+                    {
+                        if (Net) NC?.CmdUpgradeAttack(go.GetComponent<NetworkIdentity>());
+                        else blacksmith.UpgradeAttack();
+                    }
+                    if (GUILayout.Button("Upgrade ARM"))
+                    {
+                        if (Net) NC?.CmdUpgradeArmor(go.GetComponent<NetworkIdentity>());
+                        else blacksmith.UpgradeArmor();
+                    }
                 }
 
                 GUILayout.EndHorizontal();
 
                 if (castle != null)
                 {
-                    GUILayout.Label($"Workers : {castle.WorkerCount}/{Castle.MaxWorkers}");
-                    DrawProductionStatus(castle.WorkerQueueCount, castle.MaxWorkerQueueSize,
-                                         castle.IsProducingWorker, castle.WorkerTimeRemaining);
+                    bool isRemoteClient = NetworkClient.active && !NetworkServer.active;
+                    var nfs = go.GetComponent<NetworkFactionSync>();
+
+                    int workerCount = castle.DisplayWorkerCount;
+                    int queue   = isRemoteClient && nfs != null ? nfs.SyncWorkerQueue     : castle.WorkerQueueCount;
+                    int maxQ    = castle.MaxWorkerQueueSize;
+                    bool prod   = isRemoteClient && nfs != null ? nfs.SyncWorkerProducing : castle.IsProducingWorker;
+                    float timer = isRemoteClient && nfs != null ? nfs.SyncWorkerTimer     : castle.WorkerTimeRemaining;
+
+                    GUILayout.Label($"Workers : {workerCount}/{Castle.MaxWorkers}");
+                    DrawProductionStatus(queue, maxQ, prod, timer);
                 }
 
                 var production = go.GetComponent<UnitProduction>();
                 if (production != null)
-                    DrawProductionStatus(production.QueueCount, production.MaxQueueSize,
-                                         production.IsProducing, production.TimeRemaining);
+                {
+                    bool isRemoteClient = NetworkClient.active && !NetworkServer.active;
+                    var nfs = go.GetComponent<NetworkFactionSync>();
 
+                    int queue   = isRemoteClient && nfs != null ? nfs.SyncUnitQueue     : production.QueueCount;
+                    int maxQ    = isRemoteClient && nfs != null ? nfs.SyncUnitMaxQueue  : production.MaxQueueSize;
+                    bool prod   = isRemoteClient && nfs != null ? nfs.SyncUnitProducing : production.IsProducing;
+                    float timer = isRemoteClient && nfs != null ? nfs.SyncUnitTimer     : production.TimeRemaining;
+
+                    DrawProductionStatus(queue, maxQ, prod, timer);
+                }
             }
 
-            // Bouton Démolir — tous les bâtiments sauf le Castle du joueur
             if (building != null && building.BuildingType != BuildingType.Castle)
             {
                 if (GUILayout.Button("Démolir"))
-                    building.Demolish();
+                {
+                    if (Net) NC?.CmdDemolish(go.GetComponent<NetworkIdentity>());
+                    else building.Demolish();
+                }
             }
 
-            // Bouton d'upgrade de tier — tous les bâtiments upgradables
             if (building != null && building.MaxTier > 1 && building.CurrentTier < building.MaxTier)
             {
                 string label = $"Upgrade → T{building.CurrentTier + 1} ({building.UpgradeCost}g)";
                 if (!building.UpgradeCastleReqMet)
                     label += $" [Castle T{building.NextTierCastleReq} requis]";
-                else if (ResourceManager.Instance != null && ResourceManager.Instance.Gold < building.UpgradeCost)
-                    label += " [or insuffisant]";
+                else
+                {
+                    int curGold = Net && NC != null ? NC.Gold : (ResourceManager.Instance?.Gold ?? 0);
+                    if (curGold < building.UpgradeCost)
+                        label += " [or insuffisant]";
+                }
 
+                int upgradeGold = Net && NC != null ? NC.Gold : (ResourceManager.Instance?.Gold ?? 0);
                 bool prev = GUI.enabled;
-                GUI.enabled = building.CanUpgrade;
-                if (GUILayout.Button(label)) building.Upgrade();
+                GUI.enabled = building.CanUpgrade && upgradeGold >= building.UpgradeCost;
+                if (GUILayout.Button(label))
+                {
+                    if (Net) NC?.CmdUpgradeBuilding(go.GetComponent<NetworkIdentity>());
+                    else building.Upgrade();
+                }
                 GUI.enabled = prev;
             }
         }
 
-        // ── Résumé multi-sélection ────────────────────────────────────────
         private static void DrawMultiSelectionSummary(IReadOnlyList<Selectable> selected)
         {
             int workers = 0, knights = 0, archers = 0, mages = 0, valkyries = 0, other = 0;
@@ -228,7 +268,6 @@ namespace Pantheum.UI
             GUILayout.Label(string.Join("   ", parts));
         }
 
-        // ── Boutons Construire (worker unique sélectionné) ────────────────
         private void DrawBuildingButtons(WorkerController worker)
         {
             GUILayout.Label("Construire :");
@@ -242,9 +281,10 @@ namespace Pantheum.UI
                 int limit   = BuildingManager.Instance?.GetLimit(entry.type) ?? 0;
                 string countStr = limit >= int.MaxValue ? "" : $" {current}/{limit}";
 
+                int effectiveCost = _buildingMenu.GetEffectiveCost(entry);
                 string label = tierMet
-                    ? $"{entry.label}{countStr} ({entry.goldCost}g)"
-                    : $"{entry.label} [T2] ({entry.goldCost}g)";
+                    ? $"{entry.label}{countStr} ({effectiveCost}g)"
+                    : $"{entry.label} [T2] ({effectiveCost}g)";
 
                 bool wasEnabled = GUI.enabled;
                 GUI.enabled = canBuild;
@@ -255,7 +295,6 @@ namespace Pantheum.UI
             GUILayout.EndHorizontal();
         }
 
-        // ── Statut de production (format uniforme) ────────────────────────
         private static void DrawProductionStatus(int queue, int maxQueue, bool isProducing, float timeRemaining)
         {
             string status = $"File : {queue}/{maxQueue}";

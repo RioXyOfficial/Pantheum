@@ -1,8 +1,10 @@
 using UnityEngine;
 using UnityEngine.AI;
+using Mirror;
 using Pantheum.Buildings;
 using Pantheum.Construction;
 using Pantheum.Core;
+using Pantheum.Network;
 
 namespace Pantheum.Units
 {
@@ -22,19 +24,24 @@ namespace Pantheum.Units
         [Header("Worker")]
         [SerializeField] private float _depositPause = 0.5f;
 
-        public Castle      HomeBase => _homeBase;
-        public WorkerState State    => _state;
+        [SyncVar]
+        private WorkerState _syncedState = WorkerState.Idle;
 
-        private Castle            _homeBase;
-        private ResourceNode      _targetResource;
-        private ConstructionSite  _targetSite;
-        private float             _siteProximityThreshold;
-        private WorkerState       _state = WorkerState.Idle;
-        private int               _carryingGold;
-        private int               _carryingMana;
-        private float             _harvestTimer;
-        private float             _depositTimer;
+        public Castle HomeBase => _homeBase;
+        public WorkerState State => Mirror.NetworkClient.active && !Mirror.NetworkServer.active ? _syncedState : _state;
+
+        private Castle _homeBase;
+        private ResourceNode _targetResource;
+        private ConstructionSite _targetSite;
+        private float _siteProximityThreshold;
+        private WorkerState _state = WorkerState.Idle;
+        private int _carryingGold;
+        private int _carryingMana;
+        private float _harvestTimer;
+        private float _depositTimer;
         private NavMeshPath _navPath;
+
+        private const float StoppingDist = 0.3f;
 
         protected override void Awake()
         {
@@ -46,13 +53,20 @@ namespace Pantheum.Units
         {
             if (!homeBase.TryRegisterWorker(this))
             {
-                Debug.LogWarning("[WorkerController] Castle plein — worker détruit.");
+                Debug.LogWarning("[WorkerController] Castle full — worker destroyed.");
                 Destroy(gameObject);
                 return false;
             }
+
             _homeBase = homeBase;
-            Debug.Log($"[WorkerController] Initialisé sur {homeBase.name}.");
             return true;
+        }
+
+        private void SetState(WorkerState newState)
+        {
+            _state = newState;
+            if (Mirror.NetworkServer.active)
+                _syncedState = newState;
         }
 
         protected override void OnDeath()
@@ -65,24 +79,26 @@ namespace Pantheum.Units
         public void AssignToHarvest(ResourceNode node)
         {
             if (node == null) return;
+
             CancelTask();
             _targetResource = node;
-            _state = WorkerState.MovingToResource;
+            SetState(WorkerState.MovingToResource);
             MoveToBuilding(node.transform.position, node.GridSize);
-            Debug.Log($"[WorkerController] → Récolte vers {node.name}.");
         }
 
         public void AssignToConstruction(ConstructionSite site)
         {
             if (site == null) return;
+
             CancelTask();
             _targetSite = site;
             site.AssignWorker(this);
+
             float cell = GridSystem.Instance != null ? GridSystem.Instance.CellSize : 1f;
             _siteProximityThreshold = Mathf.Max(site.GridSize.x, site.GridSize.y) * cell * 0.5f + 1.5f;
-            _state = WorkerState.MovingToBuild;
+
+            SetState(WorkerState.MovingToBuild);
             MoveToBuilding(site.transform.position, site.GridSize);
-            Debug.Log($"[WorkerController] → Construction vers {site.name}.");
         }
 
         public void OrderMove(Vector3 destination)
@@ -90,10 +106,6 @@ namespace Pantheum.Units
             CancelTask();
             MoveTo(destination);
         }
-
-        // Finds the closest walkable NavMesh point on the worker's side of the building
-        // and navigates directly to it — no going around the other side.
-        private const float StoppingDist = 0.3f;
 
         private void MoveToBuilding(Vector3 center, Vector2Int gridSize)
         {
@@ -103,7 +115,7 @@ namespace Pantheum.Units
 
         private Vector3 AccessPointFor(Vector3 center, Vector2Int gridSize)
         {
-            float cell       = GridSystem.Instance != null ? GridSystem.Instance.CellSize : 1f;
+            float cell = GridSystem.Instance != null ? GridSystem.Instance.CellSize : 1f;
             float halfExtent = Mathf.Max(gridSize.x, gridSize.y) * cell * 0.5f + 0.5f;
             const int attempts = 8;
 
@@ -112,8 +124,6 @@ namespace Pantheum.Units
             if (toWorker.sqrMagnitude < 0.001f) toWorker = Vector3.forward;
             float startAngle = Mathf.Atan2(toWorker.z, toWorker.x);
 
-            // Try 8 angles around the building starting from the worker's side.
-            // Pick the first one with a complete NavMesh path — avoids blocked sides.
             for (int i = 0; i < attempts; i++)
             {
                 float a = startAngle + (i / (float)attempts) * Mathf.PI * 2f;
@@ -129,15 +139,12 @@ namespace Pantheum.Units
                     return hit.position;
             }
 
-            // Fallback: return nearest NavMesh point on the worker's side even if path is partial.
             Vector3 fallbackProbe = center + toWorker.normalized * halfExtent;
             return NavMesh.SamplePosition(fallbackProbe, out NavMeshHit fb, 5f, NavMesh.AllAreas)
                 ? fb.position
                 : fallbackProbe;
         }
 
-        // True when the worker is within interaction range of the site —
-        // handles the case where another worker is blocking the exact nav destination.
         private bool IsNearSite(ConstructionSite site)
         {
             Vector3 diff = transform.position - site.transform.position;
@@ -152,8 +159,9 @@ namespace Pantheum.Units
                 _targetSite.RemoveWorker(this);
                 _targetSite = null;
             }
+
             _targetResource = null;
-            _state = WorkerState.Idle;
+            SetState(WorkerState.Idle);
             _agent.stoppingDistance = StoppingDist;
             StopMoving();
         }
@@ -161,7 +169,7 @@ namespace Pantheum.Units
         public void NotifyComplete()
         {
             _targetSite = null;
-            _state = WorkerState.Idle;
+            SetState(WorkerState.Idle);
         }
 
         public void NotifyHomeDestroyed()
@@ -172,20 +180,32 @@ namespace Pantheum.Units
 
         private void Update()
         {
+            if (IsClientOnly) return;
+
             switch (_state)
             {
                 case WorkerState.MovingToResource:
-                    if (_targetResource == null) { _state = WorkerState.Idle; break; }
+                    if (_targetResource == null)
+                    {
+                        SetState(WorkerState.Idle);
+                        break;
+                    }
+
                     if (HasArrived())
                     {
                         _harvestTimer = _targetResource.HarvestTime;
-                        _state = WorkerState.Harvesting;
+                        SetState(WorkerState.Harvesting);
                         StopMoving();
                     }
                     break;
 
                 case WorkerState.Harvesting:
-                    if (_targetResource == null || _homeBase == null) { _state = WorkerState.Idle; break; }
+                    if (_targetResource == null || _homeBase == null)
+                    {
+                        SetState(WorkerState.Idle);
+                        break;
+                    }
+
                     _harvestTimer -= Time.deltaTime;
                     if (_harvestTimer <= 0f)
                     {
@@ -194,21 +214,39 @@ namespace Pantheum.Units
                         else
                             _carryingMana = _targetResource.HarvestAmountPerTrip;
 
-                        _state = WorkerState.MovingToDeposit;
+                        SetState(WorkerState.MovingToDeposit);
                         MoveToBuilding(_homeBase.transform.position, _homeBase.GridSize);
                     }
                     break;
 
                 case WorkerState.MovingToDeposit:
-                    if (_homeBase == null) { _state = WorkerState.Idle; break; }
+                    if (_homeBase == null)
+                    {
+                        SetState(WorkerState.Idle);
+                        break;
+                    }
+
                     if (HasArrived())
                     {
-                        ResourceManager.Instance.DepositGold(_carryingGold);
-                        ResourceManager.Instance.DepositMana(_carryingMana);
+                        if (NetworkServer.active)
+                        {
+                            var ctrl = PlayerNetworkController.FindForFaction(Faction);
+                            if (ctrl != null)
+                            {
+                                ctrl.DepositGold(_carryingGold);
+                                ctrl.DepositMana(_carryingMana);
+                            }
+                        }
+                        else
+                        {
+                            ResourceManager.Instance.DepositGold(_carryingGold);
+                            ResourceManager.Instance.DepositMana(_carryingMana);
+                        }
+
                         _carryingGold = 0;
                         _carryingMana = 0;
                         _depositTimer = _depositPause;
-                        _state = WorkerState.Depositing;
+                        SetState(WorkerState.Depositing);
                         StopMoving();
                     }
                     break;
@@ -217,17 +255,28 @@ namespace Pantheum.Units
                     _depositTimer -= Time.deltaTime;
                     if (_depositTimer <= 0f)
                     {
-                        if (_targetResource == null) { _state = WorkerState.Idle; break; }
-                        _state = WorkerState.MovingToResource;
+                        if (_targetResource == null)
+                        {
+                            SetState(WorkerState.Idle);
+                            break;
+                        }
+
+                        SetState(WorkerState.MovingToResource);
                         MoveToBuilding(_targetResource.transform.position, _targetResource.GridSize);
                     }
                     break;
 
                 case WorkerState.MovingToBuild:
-                    if (_targetSite == null) { StopMoving(); _state = WorkerState.Idle; break; }
+                    if (_targetSite == null)
+                    {
+                        StopMoving();
+                        SetState(WorkerState.Idle);
+                        break;
+                    }
+
                     if (HasArrived() || IsNearSite(_targetSite))
                     {
-                        _state = WorkerState.Building;
+                        SetState(WorkerState.Building);
                         StopMoving();
                     }
                     break;
@@ -238,9 +287,9 @@ namespace Pantheum.Units
                         _targetSite?.RemoveWorker(this);
                         _targetSite = null;
                         _agent.stoppingDistance = StoppingDist;
-                        _state = WorkerState.Idle;
+                        SetState(WorkerState.Idle);
                     }
-                    else
+                    else if (_targetSite.IsPrimaryBuilder(this))
                     {
                         _targetSite.Tick(Time.deltaTime);
                     }
