@@ -1,0 +1,76 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &8956853394694541058
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2817633203992317502}
+  - component: {fileID: -1444043596825189366}
+  - component: {fileID: 7098538228710796453}
+  m_Layer: 0
+  m_Name: PlayerController
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2817633203992317502
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8956853394694541058}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -35.29532, y: 0, z: -43.1341}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &-1444043596825189366
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8956853394694541058}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9b91ecbcc199f4492b9a91e820070131, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Mirror::Mirror.NetworkIdentity
+  sceneId: 0
+  _assetId: 11140889
+  serverOnly: 0
+  visibility: 0
+  hasSpawned: 0
+--- !u!114 &7098538228710796453
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8956853394694541058}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b5ace6379743f4449a3277964e93e588, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Pantheum.Network.PlayerNetworkController
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  _buildingPrefabs:
+  - {fileID: 4059202506703176264, guid: 658844d714276164fad21a2ce538e61a, type: 3}
+  - {fileID: 7659990644363577559, guid: 4d21e20f3adf3394fad6143a72c1e9a0, type: 3}
+  - {fileID: 4595839704542910726, guid: c00fad49c8dc1a34f85f901a652847e2, type: 3}
+  - {fileID: 7399730141695584062, guid: 116dc65d792faed4e922a0e108d37e4f, type: 3}
+  - {fileID: 7565821774180509967, guid: 0ca8f077a80e6254ebf7b6ec057d28bc, type: 3}
+  - {fileID: 8271953210045781391, guid: 6b0a96bd6bb8dc44882aa1a8ddccfa4d, type: 3}
+  - {fileID: 2905815980035497252, guid: 8190a34af8f7a164ab74a8df58b8721f, type: 3}
+  _buildingGoldCosts: 
